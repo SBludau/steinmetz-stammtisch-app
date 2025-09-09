@@ -3,54 +3,87 @@ import { useState } from 'react'
 import { View, Text, TextInput, Pressable, ActivityIndicator, ScrollView } from 'react-native'
 import { useRouter } from 'expo-router'
 import * as WebBrowser from 'expo-web-browser'
+import * as Linking from 'expo-linking'
+import * as AuthSession from 'expo-auth-session'
+import * as QueryParams from 'expo-auth-session/build/QueryParams'
+import Constants from 'expo-constants'
 import { supabase } from '../src/lib/supabase'
 import { colors, radius } from '../src/theme/colors'
 import { type } from '../src/theme/typography'
 
-// Wichtig für Expo: sorgt dafür, dass eine ggf. offene Auth-Session korrekt geschlossen wird
 WebBrowser.maybeCompleteAuthSession()
+
+// Hilfsfunktion: Tokens aus zurückgegebener URL lesen und Session setzen
+async function createSessionFromUrl(url: string) {
+  const { params, errorCode } = QueryParams.getQueryParams(url)
+  if (errorCode) throw new Error(errorCode)
+  const access_token = params['access_token'] as string | undefined
+  const refresh_token = params['refresh_token'] as string | undefined
+  const code = params['code'] as string | undefined
+
+  if (access_token && refresh_token) {
+    // Proxy-/Implicit-Flow: Tokens direkt setzen
+    const { error } = await supabase.auth.setSession({ access_token, refresh_token })
+    if (error) throw error
+    return true
+  }
+
+  if (code) {
+    // PKCE-Flow: Code gegen Session tauschen (falls der Proxy einen code liefert)
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    if (error) throw error
+    return true
+  }
+
+  return false
+}
 
 export default function LoginScreen() {
   const router = useRouter()
 
-  // --- UI-States
   const [busyGoogle, setBusyGoogle] = useState(false)
   const [busyEmail, setBusyEmail] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-
-  // --- E-Mail/Passwort Felder
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
-  // Dein App-Deep-Link (steht so in app.json / README)
-  const redirectTo = 'stammtisch://auth-callback'
+  // Laufzeitumgebung erkennen:
+  // In Expo Go (AppOwnership === 'expo') nutzen wir den Proxy.
+  const inExpoGo = Constants.appOwnership === 'expo'
 
-  // --------- Google Login (korrekt für RN/Expo) ----------
+  // Redirect-URL je nach Umgebung bestimmen
+  const redirectTo = inExpoGo
+    ? AuthSession.makeRedirectUri({ useProxy: true })
+    : 'stammtisch://auth-callback'
+
   async function signInWithGoogle() {
     try {
       setErr(null)
       setBusyGoogle(true)
 
-      // Wir lassen Supabase NUR die Start-URL generieren (kein Auto-Redirect)
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo,
-          skipBrowserRedirect: true,
+          skipBrowserRedirect: true, // wir öffnen den Browser selbst
         },
       })
       if (error) throw error
-      const authUrl = data?.url
-      if (!authUrl) throw new Error('Keine OAuth-URL erhalten.')
+      if (!data?.url) throw new Error('Keine OAuth-URL erhalten.')
 
-      // Expo öffnet den In-App-Browser und wartet auf den Deep Link (redirectTo)
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectTo)
+      const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo)
 
-      // Wenn der Deep Link geklickt wurde, wechselt die App zur /auth-callback Seite.
-      // Diese tauscht dort den Code gegen eine Session. Danach landen wir auf "/".
-      if (result.type === 'success') {
-        // Falls der Callback bereits gelaufen ist, landen wir hier direkt auf Home.
-        router.replace('/')
+      if (res.type === 'success' && res.url) {
+        // Expo Go (Proxy) liefert die Tokens in der URL zurück → direkt Session setzen
+        const ok = await createSessionFromUrl(res.url)
+        if (ok) {
+          router.replace('/')
+          return
+        }
+        // Falls nichts gesetzt wurde, fallback: zur Callback-Route
+        router.replace('/auth-callback')
+      } else if (res.type === 'dismiss') {
+        setErr('Anmeldung abgebrochen.')
       }
     } catch (e: any) {
       setErr(e?.message ?? String(e))
@@ -59,19 +92,16 @@ export default function LoginScreen() {
     }
   }
 
-  // --------- E-Mail/Passwort Login ----------
   async function signInWithEmail() {
     try {
       setErr(null)
       setBusyEmail(true)
-      // klassischer Sign-In
       const { error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
-        password: password,
+        password,
       })
       if (error) throw error
-
-      router.replace('/') // nach erfolgreichem Login zur Startseite
+      router.replace('/')
     } catch (e: any) {
       setErr(e?.message ?? String(e))
     } finally {
@@ -88,7 +118,6 @@ export default function LoginScreen() {
       >
         <Text style={type.h1}>Anmelden</Text>
 
-        {/* --- Google --- */}
         <Pressable
           onPress={signInWithGoogle}
           disabled={busyGoogle}
@@ -109,10 +138,8 @@ export default function LoginScreen() {
           )}
         </Pressable>
 
-        {/* --- Divider --- */}
         <Text style={[type.caption, { textAlign: 'center' }]}>oder</Text>
 
-        {/* --- E-Mail / Passwort --- */}
         <View style={{ gap: 8 }}>
           <Text style={type.h2}>E-Mail</Text>
           <TextInput
