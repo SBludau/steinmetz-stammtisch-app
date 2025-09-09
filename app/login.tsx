@@ -103,12 +103,12 @@ async function signInWithGoogle() {
   try {
     // Wir holen die OAuth-URL und öffnen sie selbst im In-App Browser
     const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo,
-        skipBrowserRedirect: true, // WICHTIG: URL selbst öffnen
-      },
-    })
+  provider: 'google',
+  options: {
+    redirectTo: 'stammtisch://auth-callback', // <<< feste Deep-Link-URL
+    skipBrowserRedirect: false,               // Standard (nur zur Klarheit)
+  },
+})
     if (error) throw error
 
     if (data?.url) {
