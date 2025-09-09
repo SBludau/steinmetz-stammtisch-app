@@ -1,4 +1,3 @@
-````markdown
 # Steinmetz Stammtisch App
 
 Eine kleine mobile App (Android/iOS/Web) mit **Expo + React Native** und **Supabase** (Auth, DB & Storage).  
@@ -23,45 +22,6 @@ Ziel: Stammtische anlegen/anzeigen, Benutzerprofile pflegen (inkl. Avatar), Anme
 
 ---
 
-## Was macht die App?
-
-- **Startseite**  
-  - Banner ganz oben  
-  - Profil-Karte (Name/Avatar, Link zum Profil)  
-  - **Bevorstehende** & **Frühere** Stammtische (jeweils scrollbar), sortiert  
-  - Echtzeit-Update bei neuen Einträgen (Realtime + Broadcast)
-
-- **Neuer Stammtisch**  
-  - Formular mit **Kalender**  
-  - Markiert immer den **2. Freitag** des sichtbaren Monats  
-  - Vorauswahl ist der **nächste 2. Freitag** ab heute  
-  - Nach Speichern geht’s automatisch zurück zur Startseite (mit Reload)
-
-- **Profil**  
-  - Vorname, Nachname, Titel, Geburtstag, Zitat  
-  - **Avatar** wählen (Galerie) oder Kamera → Upload in Supabase Storage → Pfad in `profiles.avatar_url`
-
-- **Login**  
-  - **Google OAuth** oder **E-Mail/Passwort**  
-  - **Deep Link** zurück in die App (kein `localhost`)
-
-- **Bottom-Navigation**  
-  - Startseite, Neuer Stammtisch, Statistiken (Platzhalter), Hall of Fame (Platzhalter)
-
----
-
-## Voraussetzungen & Versionen
-
-**Getestete Versionen auf diesem Rechner:**
-```bash
-node -v          # v22.19.0
-npm -v
-npx expo --version
-eas --version
-git --version
-adb version      # Android Debug Bridge version 1.0.41 (36.0.0-13206524)
-emulator -version# Android emulator version 36.1.9.0
-````
 
 **Installierte Software (kurz):**
 
