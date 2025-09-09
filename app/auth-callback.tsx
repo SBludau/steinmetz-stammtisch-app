@@ -1,59 +1,52 @@
-import { useEffect } from 'react'
-import { View, ActivityIndicator, Text } from 'react-native'
-import { useRouter } from 'expo-router'
-import * as Linking from 'expo-linking'
+// app/auth-callback.tsx
+import { useEffect, useState } from 'react'
+import { View, Text, ActivityIndicator } from 'react-native'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { supabase } from '../src/lib/supabase'
 import { colors } from '../src/theme/colors'
 import { type } from '../src/theme/typography'
 
-export default function AuthCallback() {
+export default function AuthCallbackScreen() {
   const router = useRouter()
-  const url = Linking.useURL() // letzte Deep-Link URL, z.B. stammtisch://auth-callback?code=...
+  const params = useLocalSearchParams<{ code?: string; error?: string }>()
+  const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
     (async () => {
       try {
-        // Versuche, den "code" aus der URL zu holen (PKCE-Flow)
-        let code: string | undefined
-
-        if (url) {
-          const parsed = Linking.parse(url)
-          // code kann in query (?code=...) oder im Fragment (#access_token=...) stecken
-          code = (parsed.queryParams?.code as string | undefined) ?? undefined
-
-          // Falls Access Token (impliziter Flow) zurückkommt, genügt meist getSession()
-          if (!code && parsed.queryParams?.access_token) {
-            const { data } = await supabase.auth.getSession()
-            if (data.session) {
-              router.replace('/')
-              return
-            }
-          }
-        }
-
-        if (code) {
-          // Code gegen Session tauschen (PKCE)
-          const { error } = await supabase.auth.exchangeCodeForSession({ code })
-          if (error) throw error
-          router.replace('/')
+        if (params?.error) {
+          setErr(String(params.error))
           return
         }
+        const code = typeof params.code === 'string' ? params.code : undefined
+        if (!code) {
+          setErr('Kein Code im Callback.')
+          return
+        }
+        // Tauscht den Code gegen eine Session (Access/Refresh)
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        if (error) throw error
 
-        // Fallback: Session checken
-        const { data } = await supabase.auth.getSession()
-        if (data.session) router.replace('/')
-        else router.replace('/login')
-      } catch (e) {
-        // Im Fehlerfall zurück zum Login
-        router.replace('/login')
+        router.replace('/') // fertig, zurück zur Startseite
+      } catch (e: any) {
+        setErr(e?.message ?? String(e))
       }
     })()
-  }, [url, router])
+  }, [params, router])
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }}>
-      <ActivityIndicator color={colors.gold} />
-      <Text style={[type.body, { marginTop: 8 }]}>Authentifiziere…</Text>
+    <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      {!err ? (
+        <>
+          <ActivityIndicator color={colors.text} />
+          <Text style={[type.body, { marginTop: 12 }]}>Anmeldung wird abgeschlossen …</Text>
+        </>
+      ) : (
+        <>
+          <Text style={[type.h2, { color: colors.red, marginBottom: 8 }]}>Anmeldung fehlgeschlagen</Text>
+          <Text style={type.body}>{err}</Text>
+        </>
+      )}
     </View>
   )
 }
