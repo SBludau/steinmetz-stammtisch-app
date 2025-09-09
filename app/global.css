@@ -1,0 +1,29 @@
+:root{
+  --scroll-thumb: #C8AD2D;      /* gold */
+  --scroll-track: #0E0E0E;      /* cardBg */
+  --scroll-border: #7A1F17;     /* rot */
+}
+
+/* Firefox */
+*{
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+
+/* Chromium/WebKit */
+*::-webkit-scrollbar{
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track{
+  background: var(--scroll-track);
+  border-left: 1px solid var(--scroll-border);
+}
+*::-webkit-scrollbar-thumb{
+  background-color: var(--scroll-thumb);
+  border-radius: 8px;
+  border: 2px solid var(--scroll-track);
+}
+*::-webkit-scrollbar-thumb:hover{
+  background-color: #d8bf3a; /* gold, etwas heller */
+}
