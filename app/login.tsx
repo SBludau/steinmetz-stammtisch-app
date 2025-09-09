@@ -5,6 +5,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../src/lib/supabase'      // <- korrekt für app/login.tsx
 import { colors, radius } from '../src/theme/colors'
 import { type } from '../src/theme/typography'
+import { Platform } from 'react-native'
+import * as WebBrowser from 'expo-web-browser'
+import * as Linking from 'expo-linking'
+WebBrowser.maybeCompleteAuthSession()
+
 
 // Themed Button
 function TButton({
@@ -84,15 +89,40 @@ export default function LoginScreen() {
     }
   }
 
-  async function signInWithGoogle() {
-    setLoading(true); setError(''); setMessage('')
-    const { error } = await supabase.auth.signInWithOAuth({
+async function signInWithGoogle() {
+  setLoading(true); setError(''); setMessage('')
+
+  // Redirect-Ziel:
+  // - Web: aktuelle Origin (z.B. http://localhost:8081)
+  // - Native (Android/iOS): Deep Link "stammtisch://auth-callback"
+  const redirectTo =
+    Platform.OS === 'web'
+      ? (typeof window !== 'undefined' ? window.location.origin : undefined)
+      : Linking.createURL('auth-callback') // nutzt dein scheme aus app.json
+
+  try {
+    // Wir holen die OAuth-URL und öffnen sie selbst im In-App Browser
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined },
+      options: {
+        redirectTo,
+        skipBrowserRedirect: true, // WICHTIG: URL selbst öffnen
+      },
     })
+    if (error) throw error
+
+    if (data?.url) {
+      // Öffnet den OAuth-Flow und kehrt zurück, sobald zum redirectTo zurückgeleitet wird
+      await WebBrowser.openAuthSessionAsync(data.url, redirectTo as string)
+      // Danach übernimmt unser /auth-callback-Screen (nächster Schritt)
+    }
+  } catch (e: any) {
+    setError(e?.message ?? String(e))
+  } finally {
     setLoading(false)
-    if (error) setError(error.message)
   }
+}
+
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>

@@ -1,3 +1,4 @@
+// app/(tabs)/index.tsx
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { View, Text, Image, Pressable, FlatList, Button, ScrollView } from 'react-native'
 import { useRouter } from 'expo-router'
@@ -40,7 +41,9 @@ export default function HomeScreen() {
       })
       unsub = () => sub.data.subscription.unsubscribe()
     })()
-    return () => { unsub?.() }
+    return () => {
+      unsub?.()
+    }
   }, [router])
 
   // ---------- Profil oben ----------
@@ -115,7 +118,9 @@ export default function HomeScreen() {
         }
       )
       .subscribe()
-    return () => { supabase.removeChannel(ch) }
+    return () => {
+      supabase.removeChannel(ch)
+    }
   }, [sessionChecked])
 
   // Broadcast
@@ -127,7 +132,9 @@ export default function HomeScreen() {
         loadData()
       })
       .subscribe()
-    return () => { supabase.removeChannel(ch) }
+    return () => {
+      supabase.removeChannel(ch)
+    }
   }, [sessionChecked, loadData])
 
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), [])
@@ -224,9 +231,14 @@ export default function HomeScreen() {
           ) : (
             <View
               style={{
-                width: 44, height: 44, borderRadius: 22,
-                backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center',
-                borderWidth: 1, borderColor: colors.border,
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                backgroundColor: '#1a1a1a',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1,
+                borderColor: colors.border,
               }}
             >
               <Text style={{ color: colors.text }}>🙂</Text>
