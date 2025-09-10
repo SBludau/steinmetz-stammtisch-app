@@ -1,5 +1,5 @@
 // app/login.tsx
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { View, Text, TextInput, Pressable, ActivityIndicator, ScrollView, Alert } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Platform } from 'react-native'
@@ -46,6 +46,32 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+
+  // >>> NEU: nach erfolgreichem Login automatisch weiterleiten (kein 2. Klick nötig)
+  useEffect(() => {
+    let mounted = true
+
+    ;(async () => {
+      const { data } = await supabase.auth.getSession()
+      if (mounted && data?.session) {
+        router.replace('/')
+      }
+    })()
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        router.replace('/')
+      }
+    })
+
+    return () => {
+      mounted = false
+      subscription?.unsubscribe()
+    }
+  }, [router])
+  // <<< NEU Ende
 
   // ---------- Google-Login ----------
   async function signInWithGoogle() {
@@ -136,7 +162,7 @@ export default function LoginScreen() {
           padding: 15,
           borderRadius: radius.lg,
           alignItems: 'center',
-          marginBottom: 10,
+          marginBottom: 6,
         }}
       >
         {busyGoogle ? (
@@ -147,6 +173,20 @@ export default function LoginScreen() {
           </Text>
         )}
       </Pressable>
+
+      {/* Kleingedrucktes unter dem Button */}
+      <Text
+        style={{
+          textAlign: 'center',
+          marginBottom: 10,
+          opacity: 0.8,
+          fontSize: 12,
+          color: colors.gold,
+          fontFamily: type.body.fontFamily ?? undefined,
+        }}
+      >
+        Wir speichern keine Daten in der App – und kein Passwort. Über Google kommt nur ein „Okay, ich bin’s“. In der App stehen nur harmlose Sachen wie Stammtisch-Termine – keine persönlichen Daten.
+      </Text>
 
       {/* Email/Passwort – unverändert */}
       {err && (

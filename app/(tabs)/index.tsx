@@ -12,10 +12,7 @@ import { type } from '../../src/theme/typography'
 type Row = { id: number; date: string; location: string; notes: string | null }
 type Profile = { first_name: string | null; last_name: string | null; avatar_url: string | null }
 
-// Banner-Asset
 const BANNER = require('../../assets/images/banner.png')
-
-// ---------- State ----------
 const AVATAR_BASE_URL =
   'https://bcbqnkycjroiskwqcftc.supabase.co/storage/v1/object/public/avatars'
 
@@ -27,10 +24,9 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(false)
   const [sessionChecked, setSessionChecked] = useState(false)
 
-  // NEW: aktiver Tab (standard: 'upcoming')
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming')
 
-  // ---------- Session prüfen ----------
+  // Session prüfen
   useFocusEffect(
     useCallback(() => {
       let active = true
@@ -49,7 +45,7 @@ export default function HomeScreen() {
     }, [router])
   )
 
-  // ---------- Daten laden ----------
+  // Daten laden
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
@@ -69,81 +65,43 @@ export default function HomeScreen() {
     loadData()
   }, [sessionChecked, loadData])
 
-  // Live-Updates (realtime)
-  useEffect(() => {
-    if (!sessionChecked) return
-    let unsub: null | (() => void) = null
-    ;(async () => {
-      const sub = await supabase
-        .channel('public:stammtisch')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'stammtisch' },
-          payload => {
-            const r = payload.new as Row
-            setRows(prev => (prev.some(x => x.id === r.id) ? prev : [r, ...prev]))
-          }
-        )
-        .subscribe()
-      unsub = () => sub.data.subscription.unsubscribe()
-    })()
-    return () => {
-      unsub?.()
-    }
-  }, [sessionChecked])
-
-  // ---------- Profil oben ----------
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [userEmail, setUserEmail] = useState<string | null>(null)
-  const [avatarPublicUrl, setAvatarPublicUrl] = useState<string | null>(null)
-
-  const loadProfile = useCallback(async () => {
-    const { data: userData } = await supabase.auth.getUser()
-    if (!userData?.user) return
-    setUserEmail(userData.user.email ?? null)
-
-    const uid = userData.user.id
-    const { data } = await supabase
-      .from('profiles')
-      .select('first_name,last_name,avatar_url')
-      .eq('auth_user_id', uid)
-      .maybeSingle()
-
-    const prof: Profile = {
-      first_name: data?.first_name ?? null,
-      last_name: data?.last_name ?? null,
-      avatar_url: data?.avatar_url ?? null,
-    }
-    setProfile(prof)
-
-    if (prof.avatar_url) {
-      setAvatarPublicUrl(`${AVATAR_BASE_URL}/${prof.avatar_url}`)
-    } else {
-      setAvatarPublicUrl(null)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!sessionChecked) return
-    loadProfile()
-  }, [sessionChecked, loadProfile])
-
-  // Realtime für neue Einträge
+  // Realtime: INSERT/UPDATE/DELETE sauber behandeln
   useEffect(() => {
     if (!sessionChecked) return
     const ch = supabase
-      .channel('row-insert', { config: { broadcast: { self: true } } })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'stammtisch' }, payload => {
-        const r = payload.new as Row
-        setRows(prev => (prev.some(x => x.id === r.id) ? prev : [r, ...prev]))
-      })
+      .channel('public:stammtisch')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'stammtisch' },
+        payload => {
+          const r = payload.new as Row
+          setRows(prev => (prev.some(x => x.id === r.id) ? prev : [...prev, r]))
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'stammtisch' },
+        payload => {
+          const r = payload.new as Row
+          setRows(prev => prev.map(p => (p.id === r.id ? r : p)))
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'stammtisch' },
+        payload => {
+          const oldId = (payload.old as any)?.id
+          setRows(prev => prev.filter(p => p.id !== oldId))
+        }
+      )
       .subscribe()
+
     return () => {
       supabase.removeChannel(ch)
     }
   }, [sessionChecked])
 
-  // Broadcast
+  // Broadcast: „neu gespeichert“ → neu laden (Fallback)
   useEffect(() => {
     if (!sessionChecked) return
     const ch = supabase
@@ -169,6 +127,34 @@ export default function HomeScreen() {
     [rows, todayStr]
   )
 
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [avatarPublicUrl, setAvatarPublicUrl] = useState<string | null>(null)
+
+  const loadProfile = useCallback(async () => {
+    const { data: userData } = await supabase.auth.getUser()
+    if (!userData?.user) return
+    setUserEmail(userData.user.email ?? null)
+    const uid = userData.user.id
+    const { data } = await supabase
+      .from('profiles')
+      .select('first_name,last_name,avatar_url')
+      .eq('auth_user_id', uid)
+      .maybeSingle()
+    const prof: Profile = {
+      first_name: data?.first_name ?? null,
+      last_name: data?.last_name ?? null,
+      avatar_url: data?.avatar_url ?? null,
+    }
+    setProfile(prof)
+    setAvatarPublicUrl(prof.avatar_url ? `${AVATAR_BASE_URL}/${prof.avatar_url}` : null)
+  }, [])
+
+  useEffect(() => {
+    if (!sessionChecked) return
+    loadProfile()
+  }, [sessionChecked, loadProfile])
+
   const nameOrEmail = useMemo(() => {
     const fn = profile?.first_name?.trim() || ''
     const ln = profile?.last_name?.trim() || ''
@@ -177,7 +163,10 @@ export default function HomeScreen() {
   }, [profile, userEmail])
 
   const renderItem = ({ item }: { item: Row }) => (
-    <View
+    <Pressable
+      onPress={() =>
+        router.push({ pathname: '/(tabs)/stammtisch/[id]', params: { id: String(item.id) } })
+      }
       style={{
         padding: 8,
         borderBottomWidth: 1,
@@ -186,11 +175,9 @@ export default function HomeScreen() {
       }}
     >
       <Text style={type.body}>{item.date} • {item.location}</Text>
-      {!!item.notes && <Text style={type.caption}>{item.notes}</Text>}
-    </View>
+    </Pressable>
   )
 
-  // ---- Helper: Abschnitt-Box (teilt sich Styles für beide Tabs) ----
   const SectionBox = ({ children }: { children: React.ReactNode }) => (
     <View
       style={{
@@ -274,12 +261,12 @@ export default function HomeScreen() {
           </View>
         </Pressable>
 
-        {/* --- Tabs (2/3 : 1/3) --- */}
+        {/* Tabs (2/3 : 1/3) */}
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
           <Pressable
             onPress={() => setActiveTab('upcoming')}
             style={{
-              flex: 2, // 2/3 Breite
+              flex: 2,
               padding: 12,
               borderRadius: radius.md,
               borderWidth: 1,
@@ -301,7 +288,7 @@ export default function HomeScreen() {
           <Pressable
             onPress={() => setActiveTab('past')}
             style={{
-              flex: 1, // 1/3 Breite
+              flex: 1,
               padding: 12,
               borderRadius: radius.md,
               borderWidth: 1,
@@ -321,7 +308,7 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        {/* --- Inhalt je nach aktivem Tab --- */}
+        {/* Inhalt je Tab */}
         {activeTab === 'upcoming' ? (
           <SectionBox>
             {upcoming.length === 0 ? (
@@ -348,7 +335,9 @@ export default function HomeScreen() {
           </SectionBox>
         )}
 
-
+        <View style={{ marginTop: 8 }}>
+          <Button title={loading ? 'Lade…' : 'Neu laden'} onPress={loadData} disabled={loading} />
+        </View>
       </ScrollView>
 
       <BottomNav />
