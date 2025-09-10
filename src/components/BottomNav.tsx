@@ -44,17 +44,17 @@ export default function BottomNav() {
         <Image source={ICON_NEW} style={styles.icon} resizeMode="contain" />
       </Pressable>
 
-      {/* Platzhalter */}
+      {/* Statistiken (aktiv) */}
       <Pressable
         style={styles.btn}
-        onPress={() => {}}
+        onPress={() => router.replace('/stats')}
         accessibilityRole="button"
         accessibilityLabel="Statistiken"
       >
         <Image source={ICON_STATS} style={styles.icon} resizeMode="contain" />
       </Pressable>
 
-      {/* Platzhalter */}
+      {/* Hall of Fame (noch Platzhalter) */}
       <Pressable
         style={styles.btn}
         onPress={() => {}}

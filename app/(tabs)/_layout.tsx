@@ -15,6 +15,9 @@ export default function Layout() {
       <Tabs.Screen name="stammtisch/[id]" options={{ href: null }} />
       <Tabs.Screen name="explore" options={{ href: null }} />
       <Tabs.Screen name="profile" options={{ href: null }} />
+
+      {/* Neu: Statistiken */}
+      <Tabs.Screen name="stats" />
     </Tabs>
   )
 }
