@@ -14,10 +14,11 @@ export default function Layout() {
       {/* Detail-/Edit-Seite ohne Tab-Eintrag */}
       <Tabs.Screen name="stammtisch/[id]" options={{ href: null }} />
       <Tabs.Screen name="explore" options={{ href: null }} />
-      <Tabs.Screen name="profile" options={{ href: null }} />
+      <Tabs.Screen name="profile" />
 
-      {/* Neu: Statistiken */}
+      {/* Neu: Statistiken & Hall of Fame */}
       <Tabs.Screen name="stats" />
+      <Tabs.Screen name="hall_of_fame" />
     </Tabs>
   )
 }

@@ -44,7 +44,7 @@ export default function BottomNav() {
         <Image source={ICON_NEW} style={styles.icon} resizeMode="contain" />
       </Pressable>
 
-      {/* Statistiken (aktiv) */}
+      {/* Statistiken */}
       <Pressable
         style={styles.btn}
         onPress={() => router.replace('/stats')}
@@ -54,10 +54,10 @@ export default function BottomNav() {
         <Image source={ICON_STATS} style={styles.icon} resizeMode="contain" />
       </Pressable>
 
-      {/* Hall of Fame (noch Platzhalter) */}
+      {/* Hall of Fame (jetzt aktiv) */}
       <Pressable
         style={styles.btn}
-        onPress={() => {}}
+        onPress={() => router.replace('/hall_of_fame')}
         accessibilityRole="button"
         accessibilityLabel="Hall of Fame"
       >
