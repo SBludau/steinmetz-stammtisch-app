@@ -1,6 +1,6 @@
 // app/(tabs)/stammtisch/[id].tsx
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { View, Text, TextInput, Button, ScrollView, Alert, Pressable, ActivityIndicator } from 'react-native'
+import { View, Text, TextInput, Button, ScrollView, Alert, Pressable, ActivityIndicator, Image } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Calendar } from 'react-native-calendars'
@@ -10,11 +10,16 @@ import { colors, radius } from '../../../src/theme/colors'
 import { type } from '../../../src/theme/typography'
 
 type Row = { id: number; date: string; location: string; notes: string | null }
-type Profile = { auth_user_id: string; first_name: string | null; last_name: string | null }
+type Profile = { auth_user_id: string; first_name: string | null; last_name: string | null; avatar_url: string | null }
 
 // Hilfen
 const pad = (n: number) => (n < 10 ? `0${n}` : String(n))
 const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+const firstOfMonth = (dateStr: string) => {
+  if (!dateStr) return ''
+  const [y, m] = dateStr.split('-')
+  return `${y}-${m}-01`
+}
 
 // Route-Param sicher normalisieren (expo-router kann string ODER string[] liefern)
 function normalizeId(param: unknown): number {
@@ -22,6 +27,9 @@ function normalizeId(param: unknown): number {
   const n = Number(raw)
   return Number.isFinite(n) ? n : NaN
 }
+
+const AVATAR_BASE_URL =
+  'https://bcbqnkycjroiskwqcftc.supabase.co/storage/v1/object/public/avatars'
 
 export default function StammtischEditScreen() {
   const insets = useSafeAreaInsets()
@@ -39,11 +47,22 @@ export default function StammtischEditScreen() {
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
 
-  // Teilnehmer-Status (nutzt public.stammtisch_participants)
+  // Teilnehmer-Status (public.stammtisch_participants)
   type AttStatus = 'going' | 'declined' | 'maybe'
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [attendingMap, setAttendingMap] = useState<Record<string, AttStatus>>({})
   const [loadingAtt, setLoadingAtt] = useState(true)
+
+  // Geburtstags-Runden (public.birthday_rounds)
+  type BR = { id: number; auth_user_id: string; due_month: string; settled_stammtisch_id: number | null }
+  const [dueRounds, setDueRounds] = useState<BR[]>([])
+  const [loadingRounds, setLoadingRounds] = useState(true)
+  const [roundsErr, setRoundsErr] = useState<string | null>(null)
+
+  // Edle Spender dieses Stammtischs (alle, die ihre Runde HIER gegeben haben)
+  type Donor = { auth_user_id: string; settled_at: string | null }
+  const [donors, setDonors] = useState<Donor[]>([])
+  const [loadingDonors, setLoadingDonors] = useState(true)
 
   const load = useCallback(async () => {
     if (!Number.isFinite(idNum)) {
@@ -75,14 +94,14 @@ export default function StammtischEditScreen() {
     }
   }, [idNum])
 
-  // Profile & Teilnehmer-Status laden (aus profiles + stammtisch_participants)
+  // Profile & Teilnehmer-Status laden
   const loadParticipants = useCallback(async () => {
     if (!Number.isFinite(idNum)) return
     setLoadingAtt(true)
     try {
       const { data: profs, error: pErr } = await supabase
         .from('profiles')
-        .select('auth_user_id, first_name, last_name')
+        .select('auth_user_id, first_name, last_name, avatar_url')
         .order('last_name', { ascending: true })
       if (pErr) throw pErr
       const list = (profs ?? []) as Profile[]
@@ -105,6 +124,65 @@ export default function StammtischEditScreen() {
     }
   }, [idNum])
 
+  // Geburtstags-Runden laden (alle fälligen bis einschließlich Monat dieses Stammtischs, ungeklärt)
+  const loadBirthdayRounds = useCallback(async () => {
+    setLoadingRounds(true)
+    setRoundsErr(null)
+    try {
+      if (!Number.isFinite(idNum) || !date) {
+        setDueRounds([])
+        return
+      }
+      const dueMonth = firstOfMonth(date)
+
+      // sicherstellen, dass der Monat befüllt ist
+      try {
+        await supabase.rpc('seed_birthday_rounds', {
+          p_due_month: dueMonth,
+          p_stammtisch_id: idNum,
+        })
+      } catch {
+        // ignore
+      }
+
+      const { data, error } = await supabase
+        .from('birthday_rounds')
+        .select('id, auth_user_id, due_month, settled_stammtisch_id')
+        .lte('due_month', dueMonth)
+        .is('settled_stammtisch_id', null)
+        .order('due_month', { ascending: true })
+      if (error) throw error
+
+      setDueRounds((data ?? []) as BR[])
+    } catch (e: any) {
+      setRoundsErr(e?.message ?? 'Fehler beim Laden der Geburtstags-Runden.')
+    } finally {
+      setLoadingRounds(false)
+    }
+  }, [idNum, date])
+
+  // Edle Spender (alle, die bei DIESEM Stammtisch ihre Runde gegeben haben)
+  const loadDonors = useCallback(async () => {
+    setLoadingDonors(true)
+    try {
+      if (!Number.isFinite(idNum)) {
+        setDonors([])
+        return
+      }
+      const { data, error } = await supabase
+        .from('birthday_rounds')
+        .select('auth_user_id, settled_stammtisch_id, settled_at')
+        .eq('settled_stammtisch_id', idNum)
+        .order('settled_at', { ascending: true })
+      if (error) throw error
+      setDonors((data ?? []).map(d => ({ auth_user_id: d.auth_user_id as string, settled_at: d.settled_at as string | null })))
+    } catch (e) {
+      setDonors([])
+    } finally {
+      setLoadingDonors(false)
+    }
+  }, [idNum])
+
   useEffect(() => {
     load()
   }, [load])
@@ -112,6 +190,14 @@ export default function StammtischEditScreen() {
   useEffect(() => {
     loadParticipants()
   }, [loadParticipants])
+
+  useEffect(() => {
+    loadBirthdayRounds()
+  }, [loadBirthdayRounds])
+
+  useEffect(() => {
+    loadDonors()
+  }, [loadDonors])
 
   async function save() {
     if (!Number.isFinite(idNum)) {
@@ -134,6 +220,9 @@ export default function StammtischEditScreen() {
         event: 'stammtisch-saved',
         payload: { id: idNum },
       })
+
+      // Falls Datum geändert wurde → Runden neu laden
+      await loadBirthdayRounds()
     } catch (e: any) {
       setError(e?.message ?? 'Fehler beim Speichern.')
     } finally {
@@ -234,25 +323,46 @@ export default function StammtischEditScreen() {
     }
   }
 
-  // Optional: „Vielleicht“ setzen (falls später gewünscht)
-  async function setMaybe(userId: string) {
-    if (!Number.isFinite(idNum)) return
-    const prev = attendingMap[userId] || 'declined'
-    const next: AttStatus = 'maybe'
-    setAttendingMap(m => ({ ...m, [userId]: next }))
+  // Geburtstags-Runde „gegeben“ → älteste offene Runde abschließen (für DIESEN Stammtisch)
+  async function settleRoundForUser(userId: string) {
+    if (!Number.isFinite(idNum) || !date) return
+    const dueMonth = firstOfMonth(date)
+    const candidates = dueRounds
+      .filter(r => r.auth_user_id === userId && r.due_month <= dueMonth && r.settled_stammtisch_id == null)
+      .sort((a, b) => a.due_month.localeCompare(b.due_month))
+    if (candidates.length === 0) return
+
+    const target = candidates[0]
+    // Optimistisch aus der offenen Liste entfernen
+    setDueRounds(list => list.filter(r => r.id !== target.id))
+
     try {
       const { error } = await supabase
-        .from('stammtisch_participants')
-        .upsert(
-          [{ stammtisch_id: idNum, auth_user_id: userId, status: next }],
-          { onConflict: 'stammtisch_id,auth_user_id' }
-        )
+        .from('birthday_rounds')
+        .update({ settled_stammtisch_id: idNum, settled_at: new Date().toISOString() })
+        .eq('id', target.id)
       if (error) throw error
+
+      // Spender-Liste optimistisch ergänzen
+      setDonors(prev => [...prev, { auth_user_id: userId, settled_at: new Date().toISOString() }])
     } catch (e: any) {
-      setAttendingMap(m => ({ ...m, [userId]: prev }))
-      Alert.alert('Fehler', 'Konnte Status nicht speichern.')
+      // Revert bei Fehler
+      setDueRounds(list => [...list, target].sort((a, b) => a.due_month.localeCompare(b.due_month)))
+      Alert.alert('Fehler', 'Konnte Runde nicht bestätigen.')
     }
   }
+
+  // Format-Helfer
+  const monthLabel = (ymd: string) => {
+    // erwartet 'YYYY-MM-01'
+    const [y, m] = ymd.split('-').map(Number)
+    const d = new Date(y, (m || 1) - 1, 1)
+    return d.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })
+  }
+
+  // Avatar-URL
+  const avatarUrlFor = (p: Profile | undefined | null) =>
+    p?.avatar_url ? `${AVATAR_BASE_URL}/${p.avatar_url}` : null
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -341,6 +451,73 @@ export default function StammtischEditScreen() {
               />
             </View>
 
+            {/* Edle Spender des Monats */}
+            <View
+              style={{
+                borderRadius: radius.md,
+                backgroundColor: colors.cardBg,
+                borderWidth: 1,
+                borderColor: colors.border,
+                padding: 10,
+                marginTop: 12,
+              }}
+            >
+              <Text style={{ ...type.caption, marginBottom: 8 }}>
+                Edle Spender des Monats
+              </Text>
+
+              {loadingDonors ? (
+                <View style={{ padding: 8, alignItems: 'center' }}>
+                  <ActivityIndicator color={colors.gold} />
+                </View>
+              ) : donors.length === 0 ? (
+                <Text style={type.body}>Noch keine Runde gegeben.</Text>
+              ) : (
+                <View style={{ gap: 8 }}>
+                  {donors.map((d, idx) => {
+                    const p = profiles.find(x => x.auth_user_id === d.auth_user_id)
+                    const name = p ? nameOf(p) : d.auth_user_id
+                    const avatar = avatarUrlFor(p)
+                    return (
+                      <View
+                        key={`${d.auth_user_id}-${idx}`}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 10,
+                          borderBottomWidth: 1,
+                          borderBottomColor: colors.border,
+                          paddingVertical: 8,
+                        }}
+                      >
+                        {avatar ? (
+                          <Image
+                            source={{ uri: avatar }}
+                            style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
+                          />
+                        ) : (
+                          <View
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: 14,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Text style={{ color: colors.text, fontSize: 12 }}>🥂</Text>
+                          </View>
+                        )}
+                        <Text style={type.body}>{name}</Text>
+                      </View>
+                    )
+                  })}
+                </View>
+              )}
+            </View>
+
             {/* Teilnehmer */}
             <View
               style={{
@@ -381,39 +558,86 @@ export default function StammtischEditScreen() {
                       >
                         <Text style={type.body}>{nameOf(p)}</Text>
 
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                          {/* Optionaler Maybe-Knopf (grau) – nicht erforderlich, aber vorbereitet
-                          <Pressable
-                            onPress={() => setMaybe(p.auth_user_id)}
-                            style={{
-                              paddingVertical: 4,
-                              paddingHorizontal: 8,
-                              borderRadius: 6,
-                              borderWidth: 1,
-                              borderColor: st === 'maybe' ? colors.gold : colors.border,
-                              backgroundColor: st === 'maybe' ? colors.bgLight : 'transparent',
-                            }}
-                          >
-                            <Text style={{ color: colors.gold, fontSize: 12 }}>vielleicht</Text>
-                          </Pressable>
-                          */}
+                        <View
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: 6,
+                            borderWidth: 1,
+                            borderColor: isGoing ? colors.gold : colors.border,
+                            backgroundColor: isGoing ? colors.gold : 'transparent',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          {isGoing ? (
+                            <Text style={{ color: colors.bg, fontWeight: 'bold' }}>✓</Text>
+                          ) : null}
+                        </View>
+                      </Pressable>
+                    )
+                  })}
+                </View>
+              )}
+            </View>
 
-                          <View
-                            style={{
-                              width: 22,
-                              height: 22,
-                              borderRadius: 6,
-                              borderWidth: 1,
-                              borderColor: isGoing ? colors.gold : colors.border,
-                              backgroundColor: isGoing ? colors.gold : 'transparent',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                          >
-                            {isGoing ? (
-                              <Text style={{ color: colors.bg, fontWeight: 'bold' }}>✓</Text>
-                            ) : null}
-                          </View>
+            {/* Geburtstags-Runden (offen, mit Carry-over) */}
+            <View
+              style={{
+                borderRadius: radius.md,
+                backgroundColor: colors.cardBg,
+                borderWidth: 1,
+                borderColor: colors.border,
+                padding: 10,
+                marginTop: 12,
+              }}
+            >
+              <Text style={{ ...type.caption, marginBottom: 8 }}>
+                Geburtstags-Runden (offen bis einschl. {date ? monthLabel(firstOfMonth(date)) : '–'})
+              </Text>
+
+              {loadingRounds ? (
+                <View style={{ padding: 8, alignItems: 'center' }}>
+                  <ActivityIndicator color={colors.gold} />
+                </View>
+              ) : roundsErr ? (
+                <Text style={{ ...type.body, color: colors.red }}>{roundsErr}</Text>
+              ) : dueRounds.length === 0 ? (
+                <Text style={type.body}>Keine fälligen Runden.</Text>
+              ) : (
+                <View>
+                  {dueRounds.map((r) => {
+                    const p = profiles.find(x => x.auth_user_id === r.auth_user_id)
+                    const label = p ? nameOf(p) : r.auth_user_id
+                    return (
+                      <Pressable
+                        key={r.id}
+                        onPress={() => settleRoundForUser(r.auth_user_id)}
+                        style={{
+                          paddingVertical: 10,
+                          paddingHorizontal: 8,
+                          borderBottomWidth: 1,
+                          borderBottomColor: colors.border,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={type.body}>{label}</Text>
+                          <Text style={type.caption}>fällig: {monthLabel(r.due_month)}</Text>
+                        </View>
+                        <View
+                          style={{
+                            paddingVertical: 6,
+                            paddingHorizontal: 10,
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            borderColor: colors.gold,
+                            backgroundColor: colors.cardBg,
+                          }}
+                        >
+                          <Text style={{ color: colors.gold, fontFamily: type.bold }}>Gegeben ✓</Text>
                         </View>
                       </Pressable>
                     )

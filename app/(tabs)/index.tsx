@@ -10,11 +10,26 @@ import { colors, radius } from '../../src/theme/colors'
 import { type } from '../../src/theme/typography'
 
 type Row = { id: number; date: string; location: string; notes: string | null }
-type Profile = { first_name: string | null; last_name: string | null; avatar_url: string | null }
+type Profile = { auth_user_id: string; first_name: string | null; last_name: string | null }
 
 const BANNER = require('../../assets/images/banner.png')
 const AVATAR_BASE_URL =
   'https://bcbqnkycjroiskwqcftc.supabase.co/storage/v1/object/public/avatars'
+
+// ---- Helpers ----
+const firstOfMonth = (dateStr: string) => {
+  if (!dateStr) return ''
+  const [y, m] = dateStr.split('-')
+  return `${y}-${m}-01`
+}
+const prevMonthOf = (dateStr: string) => {
+  if (!dateStr) return ''
+  const d = new Date(dateStr + 'T00:00:00Z')
+  d.setUTCMonth(d.getUTCMonth() - 1)
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  return `${y}-${m}-01`
+}
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets()
@@ -25,6 +40,13 @@ export default function HomeScreen() {
   const [sessionChecked, setSessionChecked] = useState(false)
 
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming')
+
+  // Geburtstags-Runden (nur Vormonat je Event)
+  // Map: due_month ('YYYY-MM-01') -> Array<auth_user_id>
+  const [roundsMap, setRoundsMap] = useState<Record<string, string[]>>({})
+
+  // Profile für Namen
+  const [profiles, setProfiles] = useState<Profile[] | null>(null)
 
   // Session prüfen
   useFocusEffect(
@@ -64,6 +86,20 @@ export default function HomeScreen() {
     if (!sessionChecked) return
     loadData()
   }, [sessionChecked, loadData])
+
+  // Profile laden (für Namen)
+  const loadProfiles = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('auth_user_id, first_name, last_name')
+    if (error) return
+    setProfiles(data ?? [])
+  }, [])
+
+  useEffect(() => {
+    if (!sessionChecked) return
+    loadProfiles()
+  }, [sessionChecked, loadProfiles])
 
   // Realtime: INSERT/UPDATE/DELETE sauber behandeln
   useEffect(() => {
@@ -127,11 +163,81 @@ export default function HomeScreen() {
     [rows, todayStr]
   )
 
-  const [profile, setProfile] = useState<Profile | null>(null)
+  // Namen-Helper
+  const nameOf = useCallback(
+    (uid: string) => {
+      if (!profiles) return uid
+      const p = profiles.find(x => x.auth_user_id === uid)
+      const fn = p?.first_name?.trim() || ''
+      const ln = p?.last_name?.trim() || ''
+      const full = `${fn} ${ln}`.trim()
+      return full || uid
+    },
+    [profiles]
+  )
+
+  // ---- Runden (nur Vormonat des Events) laden ----
+  const loadRoundsForUpcoming = useCallback(async (events: Row[]) => {
+    const months = Array.from(
+      new Set(
+        events
+          .map(e => e.date)
+          .filter(Boolean)
+          .map(d => prevMonthOf(d))
+          .filter(Boolean)
+      )
+    )
+    if (months.length === 0) {
+      setRoundsMap({})
+      return
+    }
+
+    // Seed sicherstellen (parallel)
+    try {
+      await Promise.all(
+        months.map(m =>
+          supabase.rpc('seed_birthday_rounds', { p_due_month: m, p_stammtisch_id: null }).catch(() => null)
+        )
+      )
+    } catch {
+      // okay
+    }
+
+    // Runden holen (nur exakt diese Monate, nur offen)
+    const { data, error } = await supabase
+      .from('birthday_rounds')
+      .select('auth_user_id, due_month, settled_stammtisch_id')
+      .in('due_month', months)
+      .is('settled_stammtisch_id', null)
+
+    if (error) {
+      setRoundsMap({})
+      return
+    }
+
+    const map: Record<string, string[]> = {}
+    for (const m of months) map[m] = []
+    for (const r of data ?? []) {
+      const dm = r.due_month as string
+      const uid = r.auth_user_id as string
+      if (!map[dm]) map[dm] = []
+      map[dm].push(uid)
+    }
+    setRoundsMap(map)
+  }, [])
+
+  useEffect(() => {
+    if (!sessionChecked) return
+    loadRoundsForUpcoming(upcoming)
+  }, [sessionChecked, upcoming, loadRoundsForUpcoming])
+
+  // ---- UI ----
+
+  const [profile, setProfile] = useState<{ first_name: string | null; last_name: string | null; avatar_url: string | null } | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [avatarPublicUrl, setAvatarPublicUrl] = useState<string | null>(null)
 
-  const loadProfile = useCallback(async () => {
+  const loadProfileCard = useCallback(async () => {
     const { data: userData } = await supabase.auth.getUser()
     if (!userData?.user) return
     setUserEmail(userData.user.email ?? null)
@@ -141,7 +247,7 @@ export default function HomeScreen() {
       .select('first_name,last_name,avatar_url')
       .eq('auth_user_id', uid)
       .maybeSingle()
-    const prof: Profile = {
+    const prof = {
       first_name: data?.first_name ?? null,
       last_name: data?.last_name ?? null,
       avatar_url: data?.avatar_url ?? null,
@@ -152,8 +258,8 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!sessionChecked) return
-    loadProfile()
-  }, [sessionChecked, loadProfile])
+    loadProfileCard()
+  }, [sessionChecked, loadProfileCard])
 
   const nameOrEmail = useMemo(() => {
     const fn = profile?.first_name?.trim() || ''
@@ -162,21 +268,31 @@ export default function HomeScreen() {
     return full.length > 0 ? full : userEmail ?? ''
   }, [profile, userEmail])
 
-  const renderItem = ({ item }: { item: Row }) => (
-    <Pressable
-      onPress={() =>
-        router.push({ pathname: '/(tabs)/stammtisch/[id]', params: { id: String(item.id) } })
-      }
-      style={{
-        padding: 8,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-        gap: 4,
-      }}
-    >
-      <Text style={type.body}>{item.date} • {item.location}</Text>
-    </Pressable>
-  )
+  const renderItem = ({ item }: { item: Row }) => {
+    const dueMonth = prevMonthOf(item.date) // nur Vormonat
+    const uids = roundsMap[dueMonth] || []
+    const names = uids.map(nameOf)
+    return (
+      <Pressable
+        onPress={() =>
+          router.push({ pathname: '/(tabs)/stammtisch/[id]', params: { id: String(item.id) } })
+        }
+        style={{
+          padding: 8,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+          gap: 4,
+        }}
+      >
+        <Text style={type.body}>{item.date} • {item.location}</Text>
+        {names.length > 0 ? (
+          <Text style={type.caption}>
+            Geburtstags-Runden ({dueMonth.slice(0,7)}): {names.join(', ')}
+          </Text>
+        ) : null}
+      </Pressable>
+    )
+  }
 
   const SectionBox = ({ children }: { children: React.ReactNode }) => (
     <View
@@ -202,7 +318,7 @@ export default function HomeScreen() {
           paddingBottom: insets.bottom + NAV_BAR_BASE_HEIGHT + 12,
         }}
       >
-        {/* Banner */}
+        {/* Banner (angepasst: max 3000px, zentriert, proportional 3:1) */}
         <View
           style={{
             borderRadius: radius.md,
@@ -210,12 +326,18 @@ export default function HomeScreen() {
             borderWidth: 1,
             borderColor: colors.border,
             overflow: 'hidden',
+            alignItems: 'center', // <-- zentriert das Bild, wenn es kleiner als der Container ist
           }}
         >
           <Image
             source={BANNER}
-            style={{ width: '100%', aspectRatio: 3 }}
             resizeMode="contain"
+            style={{
+              width: '100%',     // nimmt volle verfügbare Breite...
+              maxWidth: 3000,    // ...aber nicht größer als die native 3000px
+              aspectRatio: 3,    // proportional (3000x1000)
+              height: undefined, // nötig für RN, wenn aspectRatio genutzt wird
+            }}
           />
         </View>
 
