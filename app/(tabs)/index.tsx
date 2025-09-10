@@ -1,6 +1,6 @@
 // app/(tabs)/index.tsx
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { View, Text, Image, Pressable, FlatList, Button, ScrollView } from 'react-native'
+import { View, Text, Image, Pressable, Button, ScrollView } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useFocusEffect } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -15,36 +15,82 @@ type Profile = { first_name: string | null; last_name: string | null; avatar_url
 // Banner-Asset
 const BANNER = require('../../assets/images/banner.png')
 
-// YYYY-MM-DD -> DD.MM.YYYY
-const fmtDate = (iso: string) => {
-  const [y, m, d] = iso.split('-')
-  return `${d}.${m}.${y}`
-}
+// ---------- State ----------
+const AVATAR_BASE_URL =
+  'https://bcbqnkycjroiskwqcftc.supabase.co/storage/v1/object/public/avatars'
 
 export default function HomeScreen() {
-  const router = useRouter()
   const insets = useSafeAreaInsets()
+  const router = useRouter()
 
-  // ---------- Auth-Gate ----------
+  const [rows, setRows] = useState<Row[]>([])
+  const [loading, setLoading] = useState(false)
   const [sessionChecked, setSessionChecked] = useState(false)
-  useEffect(() => {
-    let unsub: (() => void) | undefined
-    ;(async () => {
-      const { data } = await supabase.auth.getSession()
-      if (!data.session) {
-        router.replace('/login')
-      } else {
+
+  // NEW: aktiver Tab (standard: 'upcoming')
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming')
+
+  // ---------- Session prüfen ----------
+  useFocusEffect(
+    useCallback(() => {
+      let active = true
+      ;(async () => {
+        const { data } = await supabase.auth.getSession()
+        if (!active) return
+        if (!data?.session) {
+          router.replace('/login')
+          return
+        }
         setSessionChecked(true)
+      })()
+      return () => {
+        active = false
       }
-      const sub = supabase.auth.onAuthStateChange((_e, session) => {
-        if (!session) router.replace('/login')
-      })
+    }, [router])
+  )
+
+  // ---------- Daten laden ----------
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('stammtisch')
+        .select('id,date,location,notes')
+        .order('date', { ascending: true })
+      if (error) throw error
+      setRows(data ?? [])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!sessionChecked) return
+    loadData()
+  }, [sessionChecked, loadData])
+
+  // Live-Updates (realtime)
+  useEffect(() => {
+    if (!sessionChecked) return
+    let unsub: null | (() => void) = null
+    ;(async () => {
+      const sub = await supabase
+        .channel('public:stammtisch')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'stammtisch' },
+          payload => {
+            const r = payload.new as Row
+            setRows(prev => (prev.some(x => x.id === r.id) ? prev : [r, ...prev]))
+          }
+        )
+        .subscribe()
       unsub = () => sub.data.subscription.unsubscribe()
     })()
     return () => {
       unsub?.()
     }
-  }, [router])
+  }, [sessionChecked])
 
   // ---------- Profil oben ----------
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -71,52 +117,26 @@ export default function HomeScreen() {
     setProfile(prof)
 
     if (prof.avatar_url) {
-      const { data: pub } = supabase.storage.from('avatars').getPublicUrl(prof.avatar_url)
-      setAvatarPublicUrl(pub.publicUrl ?? null)
+      setAvatarPublicUrl(`${AVATAR_BASE_URL}/${prof.avatar_url}`)
     } else {
       setAvatarPublicUrl(null)
     }
   }, [])
 
-  // ---------- Daten (Stammtisch-Listen) ----------
-  const [rows, setRows] = useState<Row[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  useEffect(() => {
+    if (!sessionChecked) return
+    loadProfile()
+  }, [sessionChecked, loadProfile])
 
-  const loadData = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    const { data, error } = await supabase
-      .from('stammtisch')
-      .select('id, date, location, notes')
-      .limit(500)
-    if (error) setError(error.message)
-    else setRows((data as Row[]) ?? [])
-    setLoading(false)
-  }, [])
-
-  useFocusEffect(
-    useCallback(() => {
-      if (sessionChecked) {
-        loadProfile()
-        loadData()
-      }
-    }, [sessionChecked, loadProfile, loadData])
-  )
-
-  // Realtime
+  // Realtime für neue Einträge
   useEffect(() => {
     if (!sessionChecked) return
     const ch = supabase
-      .channel('stammtisch-rt')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'stammtisch' },
-        (payload: any) => {
-          const r = payload.new as Row
-          setRows(prev => (prev.some(x => x.id === r.id) ? prev : [r, ...prev]))
-        }
-      )
+      .channel('row-insert', { config: { broadcast: { self: true } } })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'stammtisch' }, payload => {
+        const r = payload.new as Row
+        setRows(prev => (prev.some(x => x.id === r.id) ? prev : [r, ...prev]))
+      })
       .subscribe()
     return () => {
       supabase.removeChannel(ch)
@@ -143,51 +163,57 @@ export default function HomeScreen() {
     () => rows.filter(r => r.date >= todayStr).sort((a, b) => (a.date.localeCompare(b.date) || a.id - b.id)),
     [rows, todayStr]
   )
+
   const past = useMemo(
     () => rows.filter(r => r.date < todayStr).sort((a, b) => (b.date.localeCompare(a.date) || b.id - a.id)),
     [rows, todayStr]
   )
 
-  if (!sessionChecked) {
-    return (
-      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={type.body}>Lade …</Text>
-      </View>
-    )
-  }
-
-  const displayName =
-    (profile?.first_name ? `${profile.first_name} ` : '') +
-    (profile?.last_name ?? '')
-  const nameOrEmail = displayName.trim() || userEmail || 'Profil bearbeiten'
+  const nameOrEmail = useMemo(() => {
+    const fn = profile?.first_name?.trim() || ''
+    const ln = profile?.last_name?.trim() || ''
+    const full = `${fn} ${ln}`.trim()
+    return full.length > 0 ? full : userEmail ?? ''
+  }, [profile, userEmail])
 
   const renderItem = ({ item }: { item: Row }) => (
     <View
       style={{
-        padding: 12,
+        padding: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        gap: 4,
+      }}
+    >
+      <Text style={type.body}>{item.date} • {item.location}</Text>
+      {!!item.notes && <Text style={type.caption}>{item.notes}</Text>}
+    </View>
+  )
+
+  // ---- Helper: Abschnitt-Box (teilt sich Styles für beide Tabs) ----
+  const SectionBox = ({ children }: { children: React.ReactNode }) => (
+    <View
+      style={{
         borderRadius: radius.md,
         backgroundColor: colors.cardBg,
         borderWidth: 1,
         borderColor: colors.border,
-        marginBottom: 8,
+        padding: 8,
       }}
     >
-      <Text style={[type.h2, { marginBottom: 4 }]}>
-        {fmtDate(item.date)} – {item.location}
-      </Text>
-      {item.notes ? <Text style={type.body}>{item.notes}</Text> : null}
+      {children}
     </View>
   )
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      {/* Wichtig: Die ganze Seite scrollt; Scroll-Viewport endet vor der Bottom-Nav */}
       <ScrollView
-        style={{ marginBottom: insets.bottom + NAV_BAR_BASE_HEIGHT }}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, rowGap: 12 }}
-        persistentScrollbar
-        indicatorStyle="white"
-        showsVerticalScrollIndicator
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingTop: insets.top + 12,
+          paddingHorizontal: 12,
+          paddingBottom: insets.bottom + NAV_BAR_BASE_HEIGHT + 12,
+        }}
       >
         {/* Banner */}
         <View
@@ -203,42 +229,40 @@ export default function HomeScreen() {
             source={BANNER}
             style={{ width: '100%', aspectRatio: 3 }}
             resizeMode="contain"
-            accessible
-            accessibilityRole="image"
-            accessibilityLabel="Stammtisch Banner"
           />
         </View>
 
-        {/* Kopfzeile: Avatar + Name */}
+        {/* Profil-Karte */}
         <Pressable
-          onPress={() => router.push('/profile')}
+          onPress={() => router.push('/(tabs)/profile')}
           style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 12,
-            padding: 12,
+            marginTop: 12,
+            marginBottom: 12,
             borderRadius: radius.md,
             backgroundColor: colors.cardBg,
             borderWidth: 1,
             borderColor: colors.border,
+            padding: 12,
+            flexDirection: 'row',
+            gap: 12,
+            alignItems: 'center',
           }}
         >
           {avatarPublicUrl ? (
             <Image
               source={{ uri: avatarPublicUrl }}
-              style={{ width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: colors.border }}
+              style={{ width: 48, height: 48, borderRadius: 24, borderWidth: 1, borderColor: colors.border }}
             />
           ) : (
             <View
               style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                backgroundColor: '#1a1a1a',
-                alignItems: 'center',
-                justifyContent: 'center',
+                width: 48,
+                height: 48,
+                borderRadius: 24,
                 borderWidth: 1,
                 borderColor: colors.border,
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
             >
               <Text style={{ color: colors.text }}>🙂</Text>
@@ -250,66 +274,81 @@ export default function HomeScreen() {
           </View>
         </Pressable>
 
-        {/* Überschrift */}
-        <Text style={type.h1}>Stammtisch</Text>
+        {/* --- Tabs (2/3 : 1/3) --- */}
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+          <Pressable
+            onPress={() => setActiveTab('upcoming')}
+            style={{
+              flex: 2, // 2/3 Breite
+              padding: 12,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: activeTab === 'upcoming' ? colors.gold : colors.cardBg,
+              alignItems: 'center',
+            }}
+          >
+            <Text
+              style={[
+                type.body,
+                { color: activeTab === 'upcoming' ? colors.bg : colors.text, fontFamily: type.bold },
+              ]}
+            >
+              Bevorstehend
+            </Text>
+          </Pressable>
 
-        {/* Bevorstehende (eigene Scrollbar) */}
-        <Text style={type.h2}>Bevorstehende Stammtische</Text>
-        <View
-          style={{
-            borderRadius: radius.md,
-            backgroundColor: colors.cardBg,
-            borderWidth: 1,
-            borderColor: colors.border,
-            padding: 8,
-            maxHeight: 280,
-          }}
-        >
-          {upcoming.length === 0 ? (
-            <Text style={type.body}>Keine Einträge.</Text>
-          ) : (
-            <FlatList
-              data={upcoming}
-              keyExtractor={(r) => String(r.id)}
-              renderItem={renderItem}
-              nestedScrollEnabled
-              persistentScrollbar
-              indicatorStyle="white"
-              showsVerticalScrollIndicator
-            />
-          )}
+          <Pressable
+            onPress={() => setActiveTab('past')}
+            style={{
+              flex: 1, // 1/3 Breite
+              padding: 12,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: activeTab === 'past' ? colors.gold : colors.cardBg,
+              alignItems: 'center',
+            }}
+          >
+            <Text
+              style={[
+                type.body,
+                { color: activeTab === 'past' ? colors.bg : colors.text, fontFamily: type.bold },
+              ]}
+            >
+              Früher
+            </Text>
+          </Pressable>
         </View>
 
-        {/* Frühere (eigene Scrollbar) */}
-        <Text style={type.h2}>Frühere Stammtische</Text>
-        <View
-          style={{
-            borderRadius: radius.md,
-            backgroundColor: colors.cardBg,
-            borderWidth: 1,
-            borderColor: colors.border,
-            padding: 8,
-            maxHeight: 280,
-          }}
-        >
-          {past.length === 0 ? (
-            <Text style={type.body}>Keine Einträge.</Text>
-          ) : (
-            <FlatList
-              data={past}
-              keyExtractor={(r) => String(r.id)}
-              renderItem={renderItem}
-              nestedScrollEnabled
-              persistentScrollbar
-              indicatorStyle="white"
-              showsVerticalScrollIndicator
-            />
-          )}
-        </View>
+        {/* --- Inhalt je nach aktivem Tab --- */}
+        {activeTab === 'upcoming' ? (
+          <SectionBox>
+            {upcoming.length === 0 ? (
+              <Text style={type.body}>Keine Einträge.</Text>
+            ) : (
+              <View>
+                {upcoming.map(item => (
+                  <View key={item.id}>{renderItem({ item })}</View>
+                ))}
+              </View>
+            )}
+          </SectionBox>
+        ) : (
+          <SectionBox>
+            {past.length === 0 ? (
+              <Text style={type.body}>Keine Einträge.</Text>
+            ) : (
+              <View>
+                {past.map(item => (
+                  <View key={item.id}>{renderItem({ item })}</View>
+                ))}
+              </View>
+            )}
+          </SectionBox>
+        )}
 
-        <View style={{ marginTop: 4 }}>
-          <Button title={loading ? 'Lade…' : 'Neu laden'} onPress={loadData} disabled={loading} />
-        </View>
+
       </ScrollView>
 
       <BottomNav />

@@ -1,6 +1,6 @@
 // app/login.tsx
 import { useState } from 'react'
-import { View, Text, TextInput, Pressable, ActivityIndicator, ScrollView } from 'react-native'
+import { View, Text, TextInput, Pressable, ActivityIndicator, ScrollView, Alert } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Platform } from 'react-native'
 import * as WebBrowser from 'expo-web-browser'
@@ -12,27 +12,28 @@ import { type } from '../src/theme/typography'
 
 WebBrowser.maybeCompleteAuthSession()
 
-// Tokens/Code aus der zurückgegebenen URL lesen und bei Supabase setzen
+// Tokens (auch Hash-Fragment) extrahieren und Session setzen
 async function createSessionFromUrl(url: string) {
-  const parsedUrl = new URL(url)
-  const params = Object.fromEntries(parsedUrl.searchParams.entries())
+  const parsed = new URL(url)
+  const query = Object.fromEntries(parsed.searchParams.entries())
+  const hash = parsed.hash.startsWith('#') ? parsed.hash.slice(1) : parsed.hash
+  const frag = new URLSearchParams(hash || '')
+  const fromHash = Object.fromEntries(frag.entries())
 
-  const access_token = params['access_token'] as string | undefined
-  const refresh_token = params['refresh_token'] as string | undefined
-  const code = params['code'] as string | undefined
+  const access_token = (fromHash['access_token'] || query['access_token']) as string | undefined
+  const refresh_token = (fromHash['refresh_token'] || query['refresh_token']) as string | undefined
+  const code = (fromHash['code'] || query['code']) as string | undefined
 
   if (access_token && refresh_token) {
     const { error } = await supabase.auth.setSession({ access_token, refresh_token })
     if (error) throw error
     return true
   }
-
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (error) throw error
     return true
   }
-
   return false
 }
 
@@ -53,23 +54,23 @@ export default function LoginScreen() {
       setBusyGoogle(true)
 
       const inExpoGo = Constants.appOwnership === 'expo'
-      const proxyRedirect = 'https://auth.expo.io/@sbludau/steinmetz-stammtisch-app'
 
-      // KORREKTES Redirect je Umgebung:
+      // Expo Go: OAuth nicht unterstützt -> klare Meldung
+      if (!Platform.OS === 'web' && inExpoGo) {
+        Alert.alert(
+          'Google-Login in Expo Go nicht möglich',
+          'Bitte mit einem Development Build starten (EAS development) oder im Web testen.'
+        )
+        return
+      }
+
+      // Redirect ohne Proxy:
       const redirectTo =
         Platform.OS === 'web'
           ? `${window.location.origin}/auth-callback`
-          : inExpoGo
-            ? proxyRedirect // <-- Expo Go: feste Proxy-URL
-            : makeRedirectUri({ scheme: 'stammtisch', path: 'auth-callback' })
+          : makeRedirectUri({ scheme: 'stammtisch', path: 'auth-callback' })
 
-      // returnUrl MUSS zum redirectTo passen:
-      const returnUrl =
-        Platform.OS === 'web'
-          ? `${window.location.origin}/auth-callback`
-          : inExpoGo
-            ? proxyRedirect // <-- exakt dieselbe Proxy-URL
-            : makeRedirectUri({ scheme: 'stammtisch', path: 'auth-callback' })
+      const returnUrl = redirectTo
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -83,16 +84,17 @@ export default function LoginScreen() {
 
       console.log('appOwnership =', Constants.appOwnership)
       console.log('redirectTo =', redirectTo)
+      console.log('returnUrl =', returnUrl)
       console.log('authUrl =', data.url)
 
       if (Platform.OS === 'web') {
         window.location.href = data.url
       } else {
+        // Dev/Prod (mit eigenem Scheme)
         const res = await WebBrowser.openAuthSessionAsync(data.url, returnUrl)
         if (res.type === 'success' && res.url) {
-          try {
-            await createSessionFromUrl(res.url)
-          } catch {}
+          const ok = await createSessionFromUrl(res.url)
+          if (ok) router.replace('/')
         }
       }
     } catch (e: any) {
@@ -146,7 +148,7 @@ export default function LoginScreen() {
         )}
       </Pressable>
 
-      {/* Email Login (unverändert) */}
+      {/* Email/Passwort – unverändert */}
       {err && (
         <Text style={{ color: 'red', marginBottom: 10, textAlign: 'center' }}>{err}</Text>
       )}
