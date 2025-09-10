@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { View, Text, TextInput, Pressable, ActivityIndicator, ScrollView } from 'react-native'
 import { useRouter } from 'expo-router'
 import * as WebBrowser from 'expo-web-browser'
-import * as Linking from 'expo-linking'
 import * as AuthSession from 'expo-auth-session'
 import * as QueryParams from 'expo-auth-session/build/QueryParams'
 import Constants from 'expo-constants'
@@ -13,23 +12,22 @@ import { type } from '../src/theme/typography'
 
 WebBrowser.maybeCompleteAuthSession()
 
-// Hilfsfunktion: Tokens aus zurückgegebener URL lesen und Session setzen
+// Tokens/Code aus der zurückgegebenen URL lesen und bei Supabase setzen
 async function createSessionFromUrl(url: string) {
   const { params, errorCode } = QueryParams.getQueryParams(url)
   if (errorCode) throw new Error(errorCode)
+
   const access_token = params['access_token'] as string | undefined
   const refresh_token = params['refresh_token'] as string | undefined
   const code = params['code'] as string | undefined
 
   if (access_token && refresh_token) {
-    // Proxy-/Implicit-Flow: Tokens direkt setzen
     const { error } = await supabase.auth.setSession({ access_token, refresh_token })
     if (error) throw error
     return true
   }
 
   if (code) {
-    // PKCE-Flow: Code gegen Session tauschen (falls der Proxy einen code liefert)
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (error) throw error
     return true
@@ -44,18 +42,16 @@ export default function LoginScreen() {
   const [busyGoogle, setBusyGoogle] = useState(false)
   const [busyEmail, setBusyEmail] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
-  // Laufzeitumgebung erkennen:
-  // In Expo Go (AppOwnership === 'expo') nutzen wir den Proxy.
+  // Expo Go nutzt den Proxy, Dev Build/Prod das App-Scheme
   const inExpoGo = Constants.appOwnership === 'expo'
+  const proxyRedirect = 'https://auth.expo.io/@sbludau/steinmetz-stammtisch-app'
+  const redirectTo = inExpoGo ? proxyRedirect : 'stammtisch://auth-callback'
 
-  // Redirect-URL je nach Umgebung bestimmen
-  const redirectTo = inExpoGo
-    ? AuthSession.makeRedirectUri({ useProxy: true })
-    : 'stammtisch://auth-callback'
-
+  // ---------- Google-Login ----------
   async function signInWithGoogle() {
     try {
       setErr(null)
@@ -65,25 +61,37 @@ export default function LoginScreen() {
         provider: 'google',
         options: {
           redirectTo,
-          skipBrowserRedirect: true, // wir öffnen den Browser selbst
+          skipBrowserRedirect: true, // wir steuern den Browser-Flow selbst
         },
       })
       if (error) throw error
       if (!data?.url) throw new Error('Keine OAuth-URL erhalten.')
 
-      const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo)
+      // Diagnose-Logs
+      console.log('appOwnership =', Constants.appOwnership)
+      console.log('redirectTo =', redirectTo)
+      console.log('authUrl =', data.url)
 
-      if (res.type === 'success' && res.url) {
-        // Expo Go (Proxy) liefert die Tokens in der URL zurück → direkt Session setzen
-        const ok = await createSessionFromUrl(res.url)
+      // Startet den OAuth-Flow via Expo AuthSession (Proxy in Expo Go)
+      const res = await AuthSession.startAsync({
+        authUrl: data.url,
+        returnUrl: redirectTo,
+      })
+
+      console.log('AuthSession.startAsync result =', res?.type, (res as any)?.url)
+
+      if (res.type === 'success' && (res as any).url) {
+        const ok = await createSessionFromUrl((res as any).url as string)
         if (ok) {
           router.replace('/')
           return
         }
-        // Falls nichts gesetzt wurde, fallback: zur Callback-Route
+        // Fallback: zur Callback-Route, die ggf. den Code tauscht
         router.replace('/auth-callback')
-      } else if (res.type === 'dismiss') {
+      } else if (res.type === 'dismiss' || res.type === 'cancel') {
         setErr('Anmeldung abgebrochen.')
+      } else if (res.type === 'error') {
+        setErr('Anmeldung fehlgeschlagen.')
       }
     } catch (e: any) {
       setErr(e?.message ?? String(e))
@@ -92,6 +100,7 @@ export default function LoginScreen() {
     }
   }
 
+  // ---------- E-Mail/Passwort ----------
   async function signInWithEmail() {
     try {
       setErr(null)
@@ -118,6 +127,7 @@ export default function LoginScreen() {
       >
         <Text style={type.h1}>Anmelden</Text>
 
+        {/* Google */}
         <Pressable
           onPress={signInWithGoogle}
           disabled={busyGoogle}
@@ -140,6 +150,7 @@ export default function LoginScreen() {
 
         <Text style={[type.caption, { textAlign: 'center' }]}>oder</Text>
 
+        {/* E-Mail/Passwort */}
         <View style={{ gap: 8 }}>
           <Text style={type.h2}>E-Mail</Text>
           <TextInput
@@ -150,8 +161,12 @@ export default function LoginScreen() {
             placeholder="du@beispiel.de"
             placeholderTextColor="#bfbfbf"
             style={{
-              borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
-              padding: 10, backgroundColor: colors.cardBg, color: colors.text,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: radius.md,
+              padding: 10,
+              backgroundColor: colors.cardBg,
+              color: colors.text,
             }}
           />
 
@@ -163,8 +178,12 @@ export default function LoginScreen() {
             placeholder="••••••••"
             placeholderTextColor="#bfbfbf"
             style={{
-              borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
-              padding: 10, backgroundColor: colors.cardBg, color: colors.text,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: radius.md,
+              padding: 10,
+              backgroundColor: colors.cardBg,
+              color: colors.text,
             }}
           />
 
