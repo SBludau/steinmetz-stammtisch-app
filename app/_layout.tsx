@@ -5,6 +5,10 @@ import { ActivityIndicator, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import { colors } from '../src/theme/colors'
 import './global.css'
+import * as WebBrowser from 'expo-web-browser'
+
+// sorgt dafür, dass Auth-Session nach Redirects sauber abgeschlossen wird
+WebBrowser.maybeCompleteAuthSession();
 
 export default function RootLayout() {
   const [loaded] = useFonts({

@@ -1,52 +1,44 @@
 // app/auth-callback.tsx
-import { useEffect, useState } from 'react'
-import { View, Text, ActivityIndicator } from 'react-native'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useEffect } from 'react'
+import { useRouter } from 'expo-router'
+import * as Linking from 'expo-linking'
 import { supabase } from '../src/lib/supabase'
-import { colors } from '../src/theme/colors'
-import { type } from '../src/theme/typography'
 
-export default function AuthCallbackScreen() {
+export default function AuthCallback() {
   const router = useRouter()
-  const params = useLocalSearchParams<{ code?: string; error?: string }>()
-  const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
-    (async () => {
+    const handleAuth = async () => {
       try {
-        if (params?.error) {
-          setErr(String(params.error))
-          return
-        }
-        const code = typeof params.code === 'string' ? params.code : undefined
-        if (!code) {
-          setErr('Kein Code im Callback.')
-          return
-        }
-        // Tauscht den Code gegen eine Session (Access/Refresh)
-        const { error } = await supabase.auth.exchangeCodeForSession(code)
-        if (error) throw error
+        // URL ermitteln: auf Web window.location.href, auf Native Linking.useURL()
+        const url =
+          typeof window !== 'undefined'
+            ? window.location.href
+            : Linking.useURL() || ''
 
-        router.replace('/') // fertig, zurück zur Startseite
+        if (!url) return
+
+        const { queryParams } = Linking.parse(url)
+        const code = queryParams?.code as string | undefined
+        const access_token = queryParams?.access_token as string | undefined
+        const refresh_token = queryParams?.refresh_token as string | undefined
+
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code)
+          if (error) console.error('exchangeCodeForSession error:', error.message)
+        } else if (access_token && refresh_token) {
+          const { error } = await supabase.auth.setSession({ access_token, refresh_token })
+          if (error) console.error('setSession error:', error.message)
+        }
+
+        router.replace('/')
       } catch (e: any) {
-        setErr(e?.message ?? String(e))
+        console.error('AuthCallback error:', e.message)
       }
-    })()
-  }, [params, router])
+    }
 
-  return (
-    <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      {!err ? (
-        <>
-          <ActivityIndicator color={colors.text} />
-          <Text style={[type.body, { marginTop: 12 }]}>Anmeldung wird abgeschlossen …</Text>
-        </>
-      ) : (
-        <>
-          <Text style={[type.h2, { color: colors.red, marginBottom: 8 }]}>Anmeldung fehlgeschlagen</Text>
-          <Text style={type.body}>{err}</Text>
-        </>
-      )}
-    </View>
-  )
+    handleAuth()
+  }, [router])
+
+  return null
 }
