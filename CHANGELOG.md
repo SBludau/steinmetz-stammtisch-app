@@ -6,9 +6,38 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Geplant
-- Statistiken-Seite (KPIs, Charts)
-- Hall-of-Fame-Seite
 - App-Store-Release-Profile (Production-Builds, iOS)
+- (Optional) Rankings als DB-Views/RPCs zur Performance-Optimierung
+- (Optional) A–Z-Trenner und Suche/Filter in der Hall of Fame
+
+---
+
+## [0.2.0] - 2025-09-10
+### Added
+- **Statistiken** (`app/(tabs)/stats.tsx`):
+  - **Top 5** Teilnehmer (aktuelles Jahr; `stammtisch_participants.status = 'going'`)
+  - **Top 3** längste Serien in Folge (über chronologisch sortierte Stammtisch-Events)
+  - **Top 5** edle Spender (aktuelles Jahr; `birthday_rounds.settled_at`)
+  - Anzeige von Namen & Thumbnails aus `profiles` / Bucket `avatars`
+- **Hall of Fame** (`app/(tabs)/hall_of_fame.tsx`):
+  - **Alle Mitglieder alphabetisch** nach Nachname (deutsche Kollation)
+  - **Auszeichnungen** als Emojis inkl. **Platzierung** und **Accessibility-Label**:
+    - 🏆 Dauerbrenner (Top-Teilnahmen)
+    - 🔥 Serien-Junkie (Top-Streaks)
+    - 🍻 Edler Spender (Top-Spender)
+
+### Changed
+- **Navigation**:
+  - `app/(tabs)/_layout.tsx`: Tabs **`stats`** und **`hall_of_fame`** registriert.
+  - `src/components/BottomNav.tsx`: Buttons **Statistiken** (`/stats`) und **Hall of Fame** (`/hall_of_fame`) aktiviert.
+- **README**:
+  - Abschnitt **Dev-Server & Arbeitsweise** ergänzt (Expo Go vs. Dev Client, Cache-Reset, Tipps).
+  - Neue Seiten dokumentiert (Stats & Hall of Fame), Troubleshooting erweitert.
+- Kleinere UI-Anpassungen: konsistente Karten/Abstände, Avatar-Darstellung.
+
+### Fixed
+- Schwarzer Bildschirm durch gemischte Web/RN-Imports: Stats/Hall-of-Fame als **reine React-Native-Screens** umgesetzt.
+- Stabileres Routing: keine Navigation mehr auf nicht existierende Routen.
 
 ---
 
@@ -36,5 +65,5 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 - **Version bump**: In `app.json` bei produktiven Releases sinnvoll anheben.
 - **Tagging (optional)**:
   ```bash
-  git tag v0.1.0
+  git tag v0.2.0
   git push --tags
