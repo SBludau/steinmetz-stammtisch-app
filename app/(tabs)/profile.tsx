@@ -66,7 +66,8 @@ export default function ProfileScreen() {
 
   // Rollen-Helfer
   const isAdmin = form.role === 'admin'
-  // const isSuperuser = form.role === 'superuser'
+  const isSuperUser = form.role === 'superuser'
+  const canSeeAdminLinks = isAdmin || isSuperUser
 
   useEffect(() => {
     ;(async () => {
@@ -469,6 +470,35 @@ export default function ProfileScreen() {
           {message ? <Text style={{ ...type.body, color: colors.gold }}>{message}</Text> : null}
           {error ? <Text style={{ ...type.body, color: colors.red }}>{error}</Text> : null}
         </View>
+
+        {/* Admin-Bereich: nur für SuperUser/Admin */}
+        {canSeeAdminLinks && (
+          <View
+            style={{
+              padding: 12,
+              borderRadius: radius.md,
+              backgroundColor: colors.cardBg,
+              borderWidth: 1,
+              borderColor: colors.border,
+              gap: 8,
+            }}
+          >
+            <Text style={type.h2}>Admin-Bereich</Text>
+            <Text style={{ ...type.body, color: '#bfbfbf' }}>
+              Schnellzugriff auf Verwaltungsseiten
+            </Text>
+            <View style={{ gap: 8, marginTop: 4 }}>
+              <Button
+                title="Verknüpfungs-Anfragen prüfen"
+                onPress={() => router.push('/admin/claims')}
+              />
+              <Button
+                title={isAdmin ? 'Benutzerverwaltung öffnen' : 'Benutzerverwaltung (Nur ansehen)'}
+                onPress={() => router.push('/admin/users')}
+              />
+            </View>
+          </View>
+        )}
 
         {/* Footer – Zugriffsrechte je nach Rolle */}
         <Text
