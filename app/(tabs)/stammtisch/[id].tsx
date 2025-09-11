@@ -10,9 +10,19 @@ import { colors, radius } from '../../../src/theme/colors'
 import { type } from '../../../src/theme/typography'
 
 type Row = { id: number; date: string; location: string; notes: string | null }
-type Profile = { auth_user_id: string; first_name: string | null; last_name: string | null; avatar_url: string | null }
+type Degree = 'none' | 'dr' | 'prof' | null
+type Role = 'member' | 'superuser' | 'admin'
+type Profile = {
+  auth_user_id: string
+  first_name: string | null
+  middle_name?: string | null
+  last_name: string | null
+  degree?: Degree
+  birthday?: string | null
+  avatar_url: string | null
+}
 
-// Hilfen
+// Helpers
 const pad = (n: number) => (n < 10 ? `0${n}` : String(n))
 const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 const firstOfMonth = (dateStr: string) => {
@@ -20,13 +30,24 @@ const firstOfMonth = (dateStr: string) => {
   const [y, m] = dateStr.split('-')
   return `${y}-${m}-01`
 }
-
-// Route-Param sicher normalisieren (expo-router kann string ODER string[] liefern)
-function normalizeId(param: unknown): number {
-  const raw = Array.isArray(param) ? param[0] : (param as string | number | undefined)
-  const n = Number(raw)
-  return Number.isFinite(n) ? n : NaN
+const germanMonthYear = (iso: string) => {
+  if (!iso) return '–'
+  const d = new Date(iso + 'T00:00:00')
+  return d.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })
 }
+const germanDate = (iso: string) => {
+  if (!iso) return '–'
+  const d = new Date(iso + 'T00:00:00')
+  return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+const ageOnDate = (birthdayIso: string, refIso: string) => {
+  const [by, bm, bd] = birthdayIso.split('-').map(Number)
+  const [ry, rm, rd] = refIso.split('-').map(Number)
+  let age = ry - by
+  if (rm < bm || (rm === bm && rd < bd)) age -= 1
+  return age
+}
+const degPrefix = (d?: Degree) => (d === 'dr' ? 'Dr. ' : d === 'prof' ? 'Prof. ' : '')
 
 const AVATAR_BASE_URL =
   'https://bcbqnkycjroiskwqcftc.supabase.co/storage/v1/object/public/avatars'
@@ -35,7 +56,8 @@ export default function StammtischEditScreen() {
   const insets = useSafeAreaInsets()
   const router = useRouter()
   const params = useLocalSearchParams()
-  const idNum = normalizeId(params?.id)
+  const raw = Array.isArray(params?.id) ? params.id[0] : (params?.id as string | undefined)
+  const idNum = Number(raw)
 
   const [row, setRow] = useState<Row | null>(null)
   const [date, setDate] = useState('')         // YYYY-MM-DD
@@ -47,23 +69,29 @@ export default function StammtischEditScreen() {
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
 
-  // Teilnehmer-Status (public.stammtisch_participants)
+  // Teilnehmer-Status
   type AttStatus = 'going' | 'declined' | 'maybe'
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [attendingMap, setAttendingMap] = useState<Record<string, AttStatus>>({})
   const [loadingAtt, setLoadingAtt] = useState(true)
+  const [participantsCollapsed, setParticipantsCollapsed] = useState(false)
 
-  // Geburtstags-Runden (public.birthday_rounds)
+  // Rolle für Löschbutton
+  const [myRole, setMyRole] = useState<Role>('member')
+  const isAdmin = myRole === 'admin'
+
+  // Geburtstags-Runden
   type BR = { id: number; auth_user_id: string; due_month: string; settled_stammtisch_id: number | null }
   const [dueRounds, setDueRounds] = useState<BR[]>([])
   const [loadingRounds, setLoadingRounds] = useState(true)
   const [roundsErr, setRoundsErr] = useState<string | null>(null)
 
-  // Edle Spender dieses Stammtischs (alle, die ihre Runde HIER gegeben haben)
+  // Edle Spender
   type Donor = { auth_user_id: string; settled_at: string | null }
   const [donors, setDonors] = useState<Donor[]>([])
   const [loadingDonors, setLoadingDonors] = useState(true)
 
+  // load event
   const load = useCallback(async () => {
     if (!Number.isFinite(idNum)) {
       setError('Ungültige ID.')
@@ -94,14 +122,25 @@ export default function StammtischEditScreen() {
     }
   }, [idNum])
 
-  // Profile & Teilnehmer-Status laden
+  // role
+  useEffect(() => {
+    ;(async () => {
+      const { data: u } = await supabase.auth.getUser()
+      const uid = u?.user?.id
+      if (!uid) return
+      const { data: me } = await supabase.from('profiles').select('role').eq('auth_user_id', uid).maybeSingle()
+      setMyRole(((me?.role as Role) ?? 'member'))
+    })()
+  }, [])
+
+  // participants
   const loadParticipants = useCallback(async () => {
     if (!Number.isFinite(idNum)) return
     setLoadingAtt(true)
     try {
       const { data: profs, error: pErr } = await supabase
         .from('profiles')
-        .select('auth_user_id, first_name, last_name, avatar_url')
+        .select('auth_user_id, first_name, middle_name, last_name, degree, birthday, avatar_url')
         .order('last_name', { ascending: true })
       if (pErr) throw pErr
       const list = (profs ?? []) as Profile[]
@@ -114,7 +153,7 @@ export default function StammtischEditScreen() {
       if (aErr) throw aErr
 
       const map: Record<string, AttStatus> = {}
-      for (const p of list) map[p.auth_user_id] = 'declined' // Default: nicht anwesend
+      for (const p of list) map[p.auth_user_id] = 'declined'
       for (const row of parts ?? []) map[row.auth_user_id as string] = (row.status as AttStatus) || 'declined'
       setAttendingMap(map)
     } catch (e: any) {
@@ -124,7 +163,7 @@ export default function StammtischEditScreen() {
     }
   }, [idNum])
 
-  // Geburtstags-Runden laden (alle fälligen bis einschließlich Monat dieses Stammtischs, ungeklärt)
+  // rounds
   const loadBirthdayRounds = useCallback(async () => {
     setLoadingRounds(true)
     setRoundsErr(null)
@@ -134,16 +173,9 @@ export default function StammtischEditScreen() {
         return
       }
       const dueMonth = firstOfMonth(date)
-
-      // sicherstellen, dass der Monat befüllt ist
       try {
-        await supabase.rpc('seed_birthday_rounds', {
-          p_due_month: dueMonth,
-          p_stammtisch_id: idNum,
-        })
-      } catch {
-        // ignore
-      }
+        await supabase.rpc('seed_birthday_rounds', { p_due_month: dueMonth, p_stammtisch_id: idNum })
+      } catch { /* ignore */ }
 
       const { data, error } = await supabase
         .from('birthday_rounds')
@@ -161,14 +193,11 @@ export default function StammtischEditScreen() {
     }
   }, [idNum, date])
 
-  // Edle Spender (alle, die bei DIESEM Stammtisch ihre Runde gegeben haben)
+  // donors
   const loadDonors = useCallback(async () => {
     setLoadingDonors(true)
     try {
-      if (!Number.isFinite(idNum)) {
-        setDonors([])
-        return
-      }
+      if (!Number.isFinite(idNum)) { setDonors([]); return }
       const { data, error } = await supabase
         .from('birthday_rounds')
         .select('auth_user_id, settled_stammtisch_id, settled_at')
@@ -176,52 +205,26 @@ export default function StammtischEditScreen() {
         .order('settled_at', { ascending: true })
       if (error) throw error
       setDonors((data ?? []).map(d => ({ auth_user_id: d.auth_user_id as string, settled_at: d.settled_at as string | null })))
-    } catch (e) {
+    } catch {
       setDonors([])
     } finally {
       setLoadingDonors(false)
     }
   }, [idNum])
 
-  useEffect(() => {
-    load()
-  }, [load])
-
-  useEffect(() => {
-    loadParticipants()
-  }, [loadParticipants])
-
-  useEffect(() => {
-    loadBirthdayRounds()
-  }, [loadBirthdayRounds])
-
-  useEffect(() => {
-    loadDonors()
-  }, [loadDonors])
+  useEffect(() => { load() }, [load])
+  useEffect(() => { loadParticipants() }, [loadParticipants])
+  useEffect(() => { loadBirthdayRounds() }, [loadBirthdayRounds])
+  useEffect(() => { loadDonors() }, [loadDonors])
 
   async function save() {
-    if (!Number.isFinite(idNum)) {
-      setError('Ungültige ID.')
-      return
-    }
+    if (!Number.isFinite(idNum)) { setError('Ungültige ID.'); return }
     try {
-      setSaving(true)
-      setStatus(null)
-      setError(null)
-      const { error } = await supabase
-        .from('stammtisch')
-        .update({ date, location, notes })
-        .eq('id', idNum)
+      setSaving(true); setStatus(null); setError(null)
+      const { error } = await supabase.from('stammtisch').update({ date, location, notes }).eq('id', idNum)
       if (error) throw error
-
       setStatus('Gespeichert.')
-      await supabase.channel('client-refresh').send({
-        type: 'broadcast',
-        event: 'stammtisch-saved',
-        payload: { id: idNum },
-      })
-
-      // Falls Datum geändert wurde → Runden neu laden
+      await supabase.channel('client-refresh').send({ type: 'broadcast', event: 'stammtisch-saved', payload: { id: idNum } })
       await loadBirthdayRounds()
     } catch (e: any) {
       setError(e?.message ?? 'Fehler beim Speichern.')
@@ -231,10 +234,7 @@ export default function StammtischEditScreen() {
   }
 
   function confirmDelete() {
-    if (!Number.isFinite(idNum)) {
-      Alert.alert('Fehler', 'Ungültige ID.')
-      return
-    }
+    if (!Number.isFinite(idNum)) { Alert.alert('Fehler', 'Ungültige ID.'); return }
     Alert.alert(
       'Eintrag löschen?',
       'Dieser Vorgang kann nicht rückgängig gemacht werden.',
@@ -247,18 +247,9 @@ export default function StammtischEditScreen() {
             if (deleting) return
             try {
               setDeleting(true)
-              const { error } = await supabase
-                .from('stammtisch')
-                .delete()
-                .eq('id', idNum)
+              const { error } = await supabase.from('stammtisch').delete().eq('id', idNum)
               if (error) throw error
-
-              await supabase.channel('client-refresh').send({
-                type: 'broadcast',
-                event: 'stammtisch-saved',
-                payload: { id: idNum },
-              })
-
+              await supabase.channel('client-refresh').send({ type: 'broadcast', event: 'stammtisch-saved', payload: { id: idNum } })
               router.back()
             } catch (e: any) {
               Alert.alert('Fehler', e?.message ?? 'Löschen fehlgeschlagen.')
@@ -271,7 +262,7 @@ export default function StammtischEditScreen() {
     )
   }
 
-  // Kalender-Theme (wie new_stammtisch), keine Quick-Buttons
+  // calendar theme
   const calendarTheme = {
     backgroundColor: colors.cardBg,
     calendarBackground: colors.cardBg,
@@ -283,86 +274,150 @@ export default function StammtischEditScreen() {
     todayTextColor: colors.gold,
     arrowColor: colors.text,
   } as const
-
   const marked = date ? { [date]: { selected: true } } : undefined
   const initialDate = date || ymd(new Date())
 
-  // Vollständiger Name
-  const nameOf = useMemo(
+  // name + avatar helpers
+  const fullName = useMemo(
     () => (p: Profile) => {
       const fn = (p.first_name || '').trim()
+      const mid = p.middle_name ? ` ${p.middle_name.trim()}` : ''
       const ln = (p.last_name || '').trim()
-      const full = `${fn} ${ln}`.trim()
-      return full || 'Ohne Namen'
+      return `${degPrefix(p.degree)}${fn}${mid} ${ln}`.trim() || 'Ohne Namen'
     },
     []
   )
+  const avatarUrlFor = (p: Profile | undefined | null) =>
+    p?.avatar_url ? `${AVATAR_BASE_URL}/${p.avatar_url}` : null
 
-  // Anwesenheit toggeln (going <-> declined) und SOFORT speichern (upsert)
+  // attendance toggle
   async function toggleAttendance(userId: string) {
     if (!Number.isFinite(idNum)) return
     const prev = attendingMap[userId] || 'declined'
     const next: AttStatus = prev === 'going' ? 'declined' : 'going'
-
-    // Optimistisches Update
     setAttendingMap(m => ({ ...m, [userId]: next }))
-
     try {
       const { error } = await supabase
         .from('stammtisch_participants')
-        .upsert(
-          [{ stammtisch_id: idNum, auth_user_id: userId, status: next }],
-          { onConflict: 'stammtisch_id,auth_user_id' }
-        )
+        .upsert([{ stammtisch_id: idNum, auth_user_id: userId, status: next }], { onConflict: 'stammtisch_id,auth_user_id' })
       if (error) throw error
-    } catch (e: any) {
-      console.error('toggleAttendance Fehler:', e.message)
-      // Revert bei Fehler
+    } catch {
       setAttendingMap(m => ({ ...m, [userId]: prev }))
       Alert.alert('Fehler', 'Konnte Anwesenheit nicht speichern.')
     }
   }
 
-  // Geburtstags-Runde „gegeben“ → älteste offene Runde abschließen (für DIESEN Stammtisch)
-  async function settleRoundForUser(userId: string) {
+  // settle or create&settle
+  async function givenCurrentOrOverdue(userId: string, roundId?: number) {
     if (!Number.isFinite(idNum) || !date) return
-    const dueMonth = firstOfMonth(date)
-    const candidates = dueRounds
-      .filter(r => r.auth_user_id === userId && r.due_month <= dueMonth && r.settled_stammtisch_id == null)
-      .sort((a, b) => a.due_month.localeCompare(b.due_month))
-    if (candidates.length === 0) return
-
-    const target = candidates[0]
-    // Optimistisch aus der offenen Liste entfernen
-    setDueRounds(list => list.filter(r => r.id !== target.id))
-
+    const attending = (attendingMap[userId] || 'declined') === 'going'
+    if (!attending) {
+      Alert.alert('Hinweis', 'Runden können nur von anwesenden Mitgliedern gegeben werden.')
+      return
+    }
     try {
-      const { error } = await supabase
-        .from('birthday_rounds')
-        .update({ settled_stammtisch_id: idNum, settled_at: new Date().toISOString() })
-        .eq('id', target.id)
-      if (error) throw error
-
-      // Spender-Liste optimistisch ergänzen
-      setDonors(prev => [...prev, { auth_user_id: userId, settled_at: new Date().toISOString() }])
+      if (roundId) {
+        const { error } = await supabase
+          .from('birthday_rounds')
+          .update({ settled_stammtisch_id: idNum, settled_at: new Date().toISOString() })
+          .eq('id', roundId)
+        if (error) throw error
+      } else {
+        const due = firstOfMonth(date)
+        const { error } = await supabase
+          .from('birthday_rounds')
+          .insert([{ auth_user_id: userId, due_month: due, settled_stammtisch_id: idNum, settled_at: new Date().toISOString() }])
+        if (error) throw error
+      }
+      await loadDonors()
+      await loadBirthdayRounds()
     } catch (e: any) {
-      // Revert bei Fehler
-      setDueRounds(list => [...list, target].sort((a, b) => a.due_month.localeCompare(b.due_month)))
-      Alert.alert('Fehler', 'Konnte Runde nicht bestätigen.')
+      Alert.alert('Fehler', e?.message ?? 'Konnte Runde nicht verbuchen.')
     }
   }
 
-  // Format-Helfer
-  const monthLabel = (ymd: string) => {
-    // erwartet 'YYYY-MM-01'
-    const [y, m] = ymd.split('-').map(Number)
-    const d = new Date(y, (m || 1) - 1, 1)
-    return d.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })
+  // extra rounds
+  async function giveExtraRound() {
+    if (!Number.isFinite(idNum) || !date) return
+    const { data: sess } = await supabase.auth.getUser()
+    const uid = sess?.user?.id
+    if (!uid) { Alert.alert('Fehler', 'Nicht eingeloggt.'); return }
+    if ((attendingMap[uid] || 'declined') !== 'going') {
+      Alert.alert('Hinweis', 'Extra-Runden können nur gegeben werden, wenn du anwesend bist.')
+      return
+    }
+
+    const base = new Date(date + 'T00:00:00')
+    const daysInMonth = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate()
+    const tryInsert = async (dayOffset: number) => {
+      const d = new Date(base.getFullYear(), base.getMonth(), 1 + dayOffset)
+      const yyyy = d.getFullYear()
+      const mm = String(d.getMonth() + 1).padStart(2, '0')
+      const dd = String(Math.min(d.getDate(), daysInMonth)).padStart(2, '0')
+      const due = `${yyyy}-${mm}-${dd}`
+      const { error } = await supabase
+        .from('birthday_rounds')
+        .insert([{ auth_user_id: uid, due_month: due, settled_stammtisch_id: idNum, settled_at: new Date().toISOString() }])
+      return error
+    }
+
+    try {
+      let err = await tryInsert(0)
+      let step = 1
+      while (err && step < 5) {
+        const msg = (err as any)?.message?.toLowerCase?.() || ''
+        if (!(msg.includes('duplicate') || msg.includes('unique') || (err as any)?.code === '23505')) break
+        err = await tryInsert(step)
+        step += 1
+      }
+      if (err) throw err
+      await loadDonors()
+      await loadBirthdayRounds()
+      Alert.alert('Danke!', 'Runde wurde verbucht.')
+    } catch (e: any) {
+      Alert.alert('Fehler', e?.message ?? 'Konnte Runde nicht verbuchen.')
+    }
   }
 
-  // Avatar-URL
-  const avatarUrlFor = (p: Profile | undefined | null) =>
-    p?.avatar_url ? `${AVATAR_BASE_URL}/${p.avatar_url}` : null
+  // derived for lists
+  const currentMonthKey = date ? firstOfMonth(date) : ''
+  const currentMonth = date ? date.slice(5,7) : ''
+  const currentMonthBirthdays = useMemo(() => {
+    if (!date) return []
+    return profiles
+      .filter(p => !!p.birthday && (p.birthday as string).slice(5,7) === currentMonth)
+      .sort((a, b) =>
+        (a.last_name || '').localeCompare((b.last_name || ''), 'de', { sensitivity: 'base' }) ||
+        (a.first_name || '').localeCompare((b.first_name || ''), 'de', { sensitivity: 'base' })
+      )
+  }, [profiles, date, currentMonth])
+
+  const openCurrentMap = useMemo(() => {
+    const map = new Map<string, BR>()
+    for (const r of dueRounds) { if (r.due_month === currentMonthKey) map.set(r.auth_user_id, r) }
+    return map
+  }, [dueRounds, currentMonthKey])
+
+  const overdueRounds = useMemo(() => {
+    return dueRounds.filter(r => r.due_month < currentMonthKey)
+  }, [dueRounds, currentMonthKey])
+
+  // small "Gegeben" button (always pressable; checks attendance inside)
+  const SmallGivenBtn = ({ onPress, highlight }: { onPress: () => void; highlight?: boolean }) => (
+    <Pressable
+      onPress={onPress}
+      style={{
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: highlight ? colors.gold : colors.border,
+        backgroundColor: colors.cardBg,
+      }}
+    >
+      <Text style={{ color: highlight ? colors.gold : '#999', fontFamily: type.bold }}>Gegeben</Text>
+    </Pressable>
+  )
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -379,79 +434,323 @@ export default function StammtischEditScreen() {
         {loading ? (
           <Text style={type.body}>Lade…</Text>
         ) : error ? (
-          <>
-            <Text style={{ ...type.body, color: colors.red, marginBottom: 12 }}>{error}</Text>
-            <Button title="Zurück" onPress={() => router.back()} />
-          </>
+          <Text style={{ ...type.body, color: colors.red, marginTop: 12 }}>{error}</Text>
         ) : (
           <>
-            {/* Datum */}
+            {/* OBERER BLOCK – rote Rahmen-Box, darin 3 Spalten die gleich hoch sind (Höhe vom Kalender) */}
             <View
               style={{
-                borderRadius: radius.md,
-                backgroundColor: colors.cardBg,
-                borderWidth: 1,
-                borderColor: colors.border,
-                padding: 10,
                 marginTop: 8,
+                borderWidth: 2,
+                borderColor: '#B00020',
+                borderRadius: radius.lg,
+                padding: 8,
+                backgroundColor: 'transparent',
               }}
             >
-              <Text style={{ ...type.caption, marginBottom: 8 }}>Datum</Text>
-              <Calendar
-                initialDate={initialDate}
-                markedDates={marked}
-                onDayPress={(day) => setDate(day.dateString)}
-                theme={calendarTheme}
-                enableSwipeMonths
-              />
-              <View style={{ marginTop: 8 }}>
-                <Text style={type.body}>Ausgewählt: {date || '–'}</Text>
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'stretch' }}>
+                {/* Kalender */}
+                <View
+                  style={{
+                    flex: 1,
+                    borderRadius: radius.md,
+                    backgroundColor: colors.cardBg,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    padding: 10,
+                  }}
+                >
+                  <Text style={{ ...type.caption, marginBottom: 8 }}>Datum</Text>
+                  <Calendar
+                    initialDate={initialDate}
+                    markedDates={marked}
+                    onDayPress={(day) => setDate(day.dateString)}
+                    theme={calendarTheme}
+                    enableSwipeMonths
+                  />
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={type.body}>Ausgewählt: {date || '–'}</Text>
+                  </View>
+                </View>
+
+                {/* Geburtstags-Runden */}
+                <View
+                  style={{
+                    flex: 1,
+                    borderRadius: radius.md,
+                    backgroundColor: colors.cardBg,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    padding: 10,
+                  }}
+                >
+                  <Text style={{ ...type.caption, marginBottom: 8 }}>
+                    Geburtstags-Runden – {date ? germanMonthYear(firstOfMonth(date)) : '–'}
+                  </Text>
+
+                  {loadingRounds ? (
+                    <View style={{ padding: 8, alignItems: 'center' }}>
+                      <ActivityIndicator color={colors.gold} />
+                    </View>
+                  ) : roundsErr ? (
+                    <Text style={{ ...type.body, color: colors.red }}>{roundsErr}</Text>
+                  ) : (
+                    <View style={{ gap: 8 }}>
+                      {/* Diesen Monat */}
+                      <Text style={{ ...type.body, fontWeight: '600' }}>Diesen Monat</Text>
+                      {currentMonthBirthdays.length === 0 ? (
+                        <Text style={type.body}>Niemand hat Geburtstag.</Text>
+                      ) : (
+                        currentMonthBirthdays.map(p => {
+                          const open = openCurrentMap.get(p.auth_user_id) || null
+                          const attending = (attendingMap[p.auth_user_id] || 'declined') === 'going'
+                          return (
+                            <View
+                              key={p.auth_user_id}
+                              style={{
+                                paddingVertical: 8,
+                                borderBottomWidth: 1,
+                                borderBottomColor: colors.border,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 10,
+                              }}
+                            >
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                                {avatarUrlFor(p) ? (
+                                  <Image
+                                    source={{ uri: avatarUrlFor(p)! }}
+                                    style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
+                                  />
+                                ) : (
+                                  <View
+                                    style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' }}
+                                  >
+                                    <Text style={{ color: colors.text, fontSize: 12 }}>🎂</Text>
+                                  </View>
+                                )}
+                                <View style={{ flex: 1 }}>
+                                  <Text style={type.body}>{fullName(p)}</Text>
+                                  <Text style={type.caption}>
+                                    {p.birthday ? `${germanDate(p.birthday)} – ${ageOnDate(p.birthday, date)} Jahre` : '—'}
+                                  </Text>
+                                </View>
+                              </View>
+                              <SmallGivenBtn
+                                highlight={attending}
+                                onPress={() => givenCurrentOrOverdue(p.auth_user_id, open?.id)}
+                              />
+                            </View>
+                          )
+                        })
+                      )}
+
+                      {/* Überfällig */}
+                      <Text style={{ ...type.body, fontWeight: '600', marginTop: 6 }}>Überfällig</Text>
+                      {overdueRounds.length === 0 ? (
+                        <Text style={type.body}>Keine offenen Runden aus Vormonaten.</Text>
+                      ) : (
+                        overdueRounds.map(r => {
+                          const p = profiles.find(x => x.auth_user_id === r.auth_user_id)
+                          const attending = (attendingMap[r.auth_user_id] || 'declined') === 'going'
+                          return (
+                            <View
+                              key={r.id}
+                              style={{
+                                paddingVertical: 8,
+                                borderBottomWidth: 1,
+                                borderBottomColor: colors.border,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 10,
+                              }}
+                            >
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                                {avatarUrlFor(p || null) ? (
+                                  <Image
+                                    source={{ uri: avatarUrlFor(p || null)! }}
+                                    style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
+                                  />
+                                ) : (
+                                  <View
+                                    style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' }}
+                                  >
+                                    <Text style={{ color: colors.text, fontSize: 12 }}>🎁</Text>
+                                  </View>
+                                )}
+                                <View style={{ flex: 1 }}>
+                                  <Text style={type.body}>{p ? fullName(p) : r.auth_user_id}</Text>
+                                  <Text style={type.caption}>fällig: {germanMonthYear(r.due_month)}</Text>
+                                </View>
+                              </View>
+                              <SmallGivenBtn
+                                highlight={attending}
+                                onPress={() => givenCurrentOrOverdue(r.auth_user_id, r.id)}
+                              />
+                            </View>
+                          )
+                        })
+                      )}
+                    </View>
+                  )}
+                </View>
+
+                {/* Spender + runder Extra-Button */}
+                <View style={{ flex: 1, gap: 8 }}>
+                  <View
+                    style={{
+                      flex: 1,
+                      borderRadius: radius.md,
+                      backgroundColor: colors.cardBg,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      padding: 10,
+                    }}
+                  >
+                    <Text style={{ ...type.caption, marginBottom: 8 }}>Edle Spender dieses Stammtischs</Text>
+                    {loadingDonors ? (
+                      <View style={{ padding: 8, alignItems: 'center' }}>
+                        <ActivityIndicator color={colors.gold} />
+                      </View>
+                    ) : donors.length === 0 ? (
+                      <Text style={type.body}>Noch keine Runde gegeben.</Text>
+                    ) : (
+                      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 6 }} showsVerticalScrollIndicator>
+                        {donors.map((d, idx) => {
+                          const p = profiles.find(x => x.auth_user_id === d.auth_user_id)
+                          const name = p ? fullName(p) : d.auth_user_id
+                          const avatar = avatarUrlFor(p || null)
+                          return (
+                            <View
+                              key={`${d.auth_user_id}-${idx}`}
+                              style={{
+                                flexDirection: 'row', alignItems: 'center', gap: 10,
+                                borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 8,
+                              }}
+                            >
+                              {avatar ? (
+                                <Image
+                                  source={{ uri: avatar }}
+                                  style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
+                                />
+                              ) : (
+                                <View
+                                  style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' }}
+                                >
+                                  <Text style={{ color: colors.text, fontSize: 12 }}>🥂</Text>
+                                </View>
+                              )}
+                              <Text style={type.body}>{name}</Text>
+                            </View>
+                          )
+                        })}
+                      </ScrollView>
+                    )}
+                  </View>
+
+                  <View
+                    style={{
+                      borderRadius: radius.md,
+                      backgroundColor: colors.cardBg,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 10,
+                    }}
+                  >
+                    <Pressable
+                      onPress={giveExtraRound}
+                      style={{
+                        width: 120, height: 120, borderRadius: 60,
+                        borderWidth: 2, borderColor: colors.gold,
+                        backgroundColor: '#B00020',
+                        alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ color: colors.gold, fontFamily: type.bold, textAlign: 'center' }}>
+                        Eine{'\n'}Runde{'\n'}geben
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
               </View>
             </View>
 
-            {/* Ort */}
-            <View style={{ gap: 8, marginTop: 12 }}>
-              <Text style={type.caption}>Ort</Text>
-              <TextInput
-                value={location}
-                onChangeText={setLocation}
-                placeholder="Ort"
-                placeholderTextColor={colors.gold}
-                style={{
-                  borderWidth: 1,
-                  borderColor: colors.gold,
-                  padding: 10,
-                  borderRadius: radius.lg,
-                  color: colors.gold,
-                  backgroundColor: colors.cardBg,
-                }}
-              />
+            {/* UNTERER BLOCK – große rote Box über die volle Breite */}
+            <View
+              style={{
+                marginTop: 12,
+                borderWidth: 2,
+                borderColor: '#B00020',
+                borderRadius: radius.lg,
+                padding: 8,
+                backgroundColor: 'transparent',
+              }}
+            >
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
+                {/* Felder links (2/3) */}
+                <View style={{ flex: 2 }}>
+                  <View style={{ gap: 8 }}>
+                    <Text style={type.caption}>Ort</Text>
+                    <TextInput
+                      value={location}
+                      onChangeText={setLocation}
+                      placeholder="Ort"
+                      placeholderTextColor={colors.gold}
+                      style={{
+                        borderWidth: 1, borderColor: colors.gold, padding: 10,
+                        borderRadius: radius.lg, color: colors.gold, backgroundColor: colors.cardBg,
+                      }}
+                    />
+                  </View>
+
+                  <View style={{ gap: 8, marginTop: 12 }}>
+                    <Text style={type.caption}>Geniale Ideen für die Nachwelt</Text>
+                    <TextInput
+                      value={notes}
+                      onChangeText={setNotes}
+                      placeholder="Notizen"
+                      placeholderTextColor={colors.gold}
+                      multiline
+                      numberOfLines={6}
+                      textAlignVertical="top"
+                      style={{
+                        borderWidth: 1, borderColor: colors.gold, padding: 10,
+                        borderRadius: radius.lg, color: colors.gold, minHeight: 120, backgroundColor: colors.cardBg,
+                      }}
+                    />
+                  </View>
+                </View>
+
+                {/* Speichern rechts (1/3) */}
+                <View style={{ flex: 1 }}>
+                  <Pressable
+                    onPress={save}
+                    disabled={saving}
+                    style={{
+                      borderRadius: radius.md,
+                      borderWidth: 2,
+                      borderColor: colors.gold,
+                      backgroundColor: '#B00020',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 12,
+                      minHeight: 180,
+                      opacity: saving ? 0.7 : 1,
+                    }}
+                  >
+                    <Text style={{ color: colors.gold, fontFamily: type.bold, fontSize: 18 }}>
+                      {saving ? 'Speichere…' : 'Speichern'}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
             </View>
 
-            {/* Notizen */}
-            <View style={{ gap: 8, marginTop: 12 }}>
-              <Text style={type.caption}>Notizen</Text>
-              <TextInput
-                value={notes}
-                onChangeText={setNotes}
-                placeholder="Notizen"
-                placeholderTextColor={colors.gold}
-                multiline
-                numberOfLines={6}
-                textAlignVertical="top"
-                style={{
-                  borderWidth: 1,
-                  borderColor: colors.gold,
-                  padding: 10,
-                  borderRadius: radius.lg,
-                  color: colors.gold,
-                  minHeight: 120,
-                  backgroundColor: colors.cardBg,
-                }}
-              />
-            </View>
-
-            {/* Edle Spender des Monats */}
+            {/* Teilnehmer (minimierbar) */}
             <View
               style={{
                 borderRadius: radius.md,
@@ -462,196 +761,70 @@ export default function StammtischEditScreen() {
                 marginTop: 12,
               }}
             >
-              <Text style={{ ...type.caption, marginBottom: 8 }}>
-                Edle Spender des Monats
-              </Text>
+              <Pressable
+                onPress={() => setParticipantsCollapsed(v => !v)}
+                style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+              >
+                <Text style={{ ...type.caption, marginBottom: participantsCollapsed ? 0 : 8 }}>Teilnehmer</Text>
+                <Text style={type.caption}>{participantsCollapsed ? 'aufklappen ▾' : 'zuklappen ▴'}</Text>
+              </Pressable>
 
-              {loadingDonors ? (
-                <View style={{ padding: 8, alignItems: 'center' }}>
-                  <ActivityIndicator color={colors.gold} />
-                </View>
-              ) : donors.length === 0 ? (
-                <Text style={type.body}>Noch keine Runde gegeben.</Text>
-              ) : (
-                <View style={{ gap: 8 }}>
-                  {donors.map((d, idx) => {
-                    const p = profiles.find(x => x.auth_user_id === d.auth_user_id)
-                    const name = p ? nameOf(p) : d.auth_user_id
-                    const avatar = avatarUrlFor(p)
-                    return (
-                      <View
-                        key={`${d.auth_user_id}-${idx}`}
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 10,
-                          borderBottomWidth: 1,
-                          borderBottomColor: colors.border,
-                          paddingVertical: 8,
-                        }}
-                      >
-                        {avatar ? (
-                          <Image
-                            source={{ uri: avatar }}
-                            style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
-                          />
-                        ) : (
-                          <View
+              {!participantsCollapsed && (
+                <>
+                  {loadingAtt ? (
+                    <View style={{ padding: 8, alignItems: 'center' }}>
+                      <ActivityIndicator color={colors.gold} />
+                    </View>
+                  ) : profiles.length === 0 ? (
+                    <Text style={type.body}>Keine Nutzer gefunden.</Text>
+                  ) : (
+                    <View>
+                      {profiles.map((p) => {
+                        const st = attendingMap[p.auth_user_id] || 'declined'
+                        const isGoing = st === 'going'
+                        return (
+                          <Pressable
+                            key={p.auth_user_id}
+                            onPress={() => toggleAttendance(p.auth_user_id)}
                             style={{
-                              width: 28,
-                              height: 28,
-                              borderRadius: 14,
-                              borderWidth: 1,
-                              borderColor: colors.border,
+                              paddingVertical: 10,
+                              paddingHorizontal: 8,
+                              borderBottomWidth: 1,
+                              borderBottomColor: colors.border,
+                              flexDirection: 'row',
                               alignItems: 'center',
-                              justifyContent: 'center',
+                              justifyContent: 'space-between',
                             }}
                           >
-                            <Text style={{ color: colors.text, fontSize: 12 }}>🥂</Text>
-                          </View>
-                        )}
-                        <Text style={type.body}>{name}</Text>
-                      </View>
-                    )
-                  })}
-                </View>
+                            <Text style={type.body}>{fullName(p)}</Text>
+                            <View
+                              style={{
+                                width: 22,
+                                height: 22,
+                                borderRadius: 6,
+                                borderWidth: 1,
+                                borderColor: isGoing ? colors.gold : colors.border,
+                                backgroundColor: isGoing ? colors.gold : 'transparent',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              {isGoing ? <Text style={{ color: colors.bg, fontWeight: 'bold' }}>✓</Text> : null}
+                            </View>
+                          </Pressable>
+                        )
+                      })}
+                    </View>
+                  )}
+                </>
               )}
             </View>
 
-            {/* Teilnehmer */}
-            <View
-              style={{
-                borderRadius: radius.md,
-                backgroundColor: colors.cardBg,
-                borderWidth: 1,
-                borderColor: colors.border,
-                padding: 10,
-                marginTop: 12,
-              }}
-            >
-              <Text style={{ ...type.caption, marginBottom: 8 }}>Teilnehmer</Text>
-
-              {loadingAtt ? (
-                <View style={{ padding: 8, alignItems: 'center' }}>
-                  <ActivityIndicator color={colors.gold} />
-                </View>
-              ) : profiles.length === 0 ? (
-                <Text style={type.body}>Keine Nutzer gefunden.</Text>
-              ) : (
-                <View>
-                  {profiles.map((p) => {
-                    const st = attendingMap[p.auth_user_id] || 'declined'
-                    const isGoing = st === 'going'
-                    return (
-                      <Pressable
-                        key={p.auth_user_id}
-                        onPress={() => toggleAttendance(p.auth_user_id)}
-                        style={{
-                          paddingVertical: 10,
-                          paddingHorizontal: 8,
-                          borderBottomWidth: 1,
-                          borderBottomColor: colors.border,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                        }}
-                      >
-                        <Text style={type.body}>{nameOf(p)}</Text>
-
-                        <View
-                          style={{
-                            width: 22,
-                            height: 22,
-                            borderRadius: 6,
-                            borderWidth: 1,
-                            borderColor: isGoing ? colors.gold : colors.border,
-                            backgroundColor: isGoing ? colors.gold : 'transparent',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          {isGoing ? (
-                            <Text style={{ color: colors.bg, fontWeight: 'bold' }}>✓</Text>
-                          ) : null}
-                        </View>
-                      </Pressable>
-                    )
-                  })}
-                </View>
-              )}
-            </View>
-
-            {/* Geburtstags-Runden (offen, mit Carry-over) */}
-            <View
-              style={{
-                borderRadius: radius.md,
-                backgroundColor: colors.cardBg,
-                borderWidth: 1,
-                borderColor: colors.border,
-                padding: 10,
-                marginTop: 12,
-              }}
-            >
-              <Text style={{ ...type.caption, marginBottom: 8 }}>
-                Geburtstags-Runden (offen bis einschl. {date ? monthLabel(firstOfMonth(date)) : '–'})
-              </Text>
-
-              {loadingRounds ? (
-                <View style={{ padding: 8, alignItems: 'center' }}>
-                  <ActivityIndicator color={colors.gold} />
-                </View>
-              ) : roundsErr ? (
-                <Text style={{ ...type.body, color: colors.red }}>{roundsErr}</Text>
-              ) : dueRounds.length === 0 ? (
-                <Text style={type.body}>Keine fälligen Runden.</Text>
-              ) : (
-                <View>
-                  {dueRounds.map((r) => {
-                    const p = profiles.find(x => x.auth_user_id === r.auth_user_id)
-                    const label = p ? nameOf(p) : r.auth_user_id
-                    return (
-                      <Pressable
-                        key={r.id}
-                        onPress={() => settleRoundForUser(r.auth_user_id)}
-                        style={{
-                          paddingVertical: 10,
-                          paddingHorizontal: 8,
-                          borderBottomWidth: 1,
-                          borderBottomColor: colors.border,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                        }}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <Text style={type.body}>{label}</Text>
-                          <Text style={type.caption}>fällig: {monthLabel(r.due_month)}</Text>
-                        </View>
-                        <View
-                          style={{
-                            paddingVertical: 6,
-                            paddingHorizontal: 10,
-                            borderRadius: 8,
-                            borderWidth: 1,
-                            borderColor: colors.gold,
-                            backgroundColor: colors.cardBg,
-                          }}
-                        >
-                          <Text style={{ color: colors.gold, fontFamily: type.bold }}>Gegeben ✓</Text>
-                        </View>
-                      </Pressable>
-                    )
-                  })}
-                </View>
-              )}
-            </View>
-
-            {/* Aktionen */}
-            <View style={{ gap: 10, marginTop: 16 }}>
-              <Button title={saving ? 'Speichere…' : 'Speichern'} onPress={save} disabled={saving} />
-              <Button title="Zurück" onPress={() => router.back()} />
-              <View style={{ height: 8 }} />
-              <Button color="#B00020" title={deleting ? 'Lösche…' : 'Eintrag löschen'} onPress={confirmDelete} />
+            {/* unten: Löschen (nur Admin) */}
+            <View style={{ gap: 10, marginTop: 16, marginBottom: 6 }}>
+              {isAdmin ? (
+                <Button color="#B00020" title={deleting ? 'Lösche…' : 'Eintrag löschen'} onPress={confirmDelete} />
+              ) : null}
             </View>
 
             {status ? <Text style={{ ...type.body, color: colors.gold, marginTop: 8 }}>{status}</Text> : null}
