@@ -393,6 +393,14 @@ eas build -p android --profile preview
 git add .
 git commit -m "Update"
 git push
+
+# lokaler Pfad Projekt
+C:\Users\Sebastian Bludau\Documents\stammtisch-app>
+
+# Datenbank
+https://supabase.com/dashboard/project/bcbqnkycjroiskwqcftc
+
+
 ```
 
 **Owner:** @SBludau
