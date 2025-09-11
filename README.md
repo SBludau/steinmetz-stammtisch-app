@@ -19,8 +19,7 @@ Ziel: Stammtische anlegen/anzeigen, Benutzerprofile pflegen (inkl. Avatar), Anme
 10. [Datenbank & Storage](#datenbank--storage)
 11. [Theme (Farben & Schriftarten)](#theme-farben--schriftarten)
 12. [Weiterentwickeln (Workflow & Git)](#weiterentwickeln-workflow--git)
-13. [Troubleshooting](#troubleshooting)
-14. [Sicherheitshinweise](#sicherheitshinweise)
+13. [Sicherheitshinweise](#sicherheitshinweise)
 15. [Nützliche Befehle (Spickzettel)](#nützliche-befehle-spickzettel)
 
 ---
@@ -93,6 +92,7 @@ Startvarianten:
 
   > Benötigt eine Dev-Client-App auf dem Gerät/Emulator (via EAS einmalig bauen).
   > Für dieses Projekt reicht meist **Expo Go** – Dev Client ist optional.
+  > Nein => ohne Dev Client ging google Login nicht!
 
 **Tipp:** Wenn irgendwas „komisch“ ist → `-c` (Cache clear) verwenden.
 
@@ -345,25 +345,7 @@ npm ci
 npx expo start -c
 ```
 
-### Dev-Server Tipps
-
-* Immer mit `-c` starten, wenn seltsame Effekte auftreten
-* Schwarzer Screen? Oft: falscher `require()`-Pfad (PNG) oder Route fehlt
-* Web-Only Code (DOM, shadcn/ui) **nicht** in RN-Screens verwenden
-
 ---
-
-## Troubleshooting
-
-* **Google Login öffnet localhost** → Supabase URLs prüfen (siehe oben)
-* **Schwarzer Screen**:
-
-  1. `npx expo start -c`
-  2. `BottomNav`-PNG-Pfade exakt prüfen
-  3. Route existiert? (`<Tabs.Screen name="stats" />`)
-  4. Keine Web-Imports in RN-Screens
-* **Font-Fehler**: `BROADW.ttf` Pfad/Case prüfen, Cache leeren
-* **Images zu groß/klein**: `styles.icon.width` in `BottomNav` anpassen
 
 ---
 
