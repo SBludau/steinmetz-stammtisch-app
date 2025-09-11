@@ -10,26 +10,43 @@ Ziel: Stammtische anlegen/anzeigen, Benutzerprofile pflegen (inkl. Avatar), Anme
 1. [Was macht die App?](#was-macht-die-app)
 2. [Voraussetzungen & Versionen](#voraussetzungen--versionen)
 3. [Schnellstart](#schnellstart)
-4. [Konfiguration (Supabase, OAuth, Deep-Link)](#konfiguration-supabase-oauth-deep-link)
-5. [Entwicklung (Web & Android-Emulator)](#entwicklung-web--android-emulator)
-6. [Builds (APK mit EAS)](#builds-apk-mit-eas)
-7. [Projektstruktur & Dateien](#projektstruktur--dateien)
-8. [Datenbank & Storage](#datenbank--storage)
-9. [Theme (Farben & Schriftarten)](#theme-farben--schriftarten)
-10. [Troubleshooting](#troubleshooting)
-11. [Sicherheitshinweise](#sicherheitshinweise)
-12. [Nützliche Befehle (Spickzettel)](#nützliche-befehle-spickzettel)
+4. [Dev-Server & Arbeitsweise](#dev-server--arbeitsweise)
+5. [Konfiguration (Supabase, OAuth, Deep-Link)](#konfiguration-supabase-oauth-deep-link)
+6. [Entwicklung (Web & Android-Emulator)](#entwicklung-web--android-emulator)
+7. [Builds (APK mit EAS)](#builds-apk-mit-eas)
+8. [Projektstruktur & Dateien](#projektstruktur--dateien)
+9. [Neue Seiten: Statistiken & Hall of Fame](#neue-seiten-statistiken--hall-of-fame)
+10. [Datenbank & Storage](#datenbank--storage)
+11. [Theme (Farben & Schriftarten)](#theme-farben--schriftarten)
+12. [Weiterentwickeln (Workflow & Git)](#weiterentwickeln-workflow--git)
+13. [Sicherheitshinweise](#sicherheitshinweise)
+15. [Nützliche Befehle (Spickzettel)](#nützliche-befehle-spickzettel)
 
 ---
 
+## Was macht die App?
 
-**Installierte Software (kurz):**
+- **Stammtische** erstellen, anzeigen und verwalten
+- **Profile** mit Avatar
+- **Teilnahme** („going/maybe/declined“)
+- **Login** via Google oder E-Mail/Passwort
+- **Neu**:
+  - **Statistiken**: Top-Teilnehmer, längste Serien, edle Spender
+  - **Hall of Fame**: alle Mitglieder alphabetisch, inkl. Auszeichnungen (Emojis mit Platzierung)
 
-* **Node.js** (inkl. npm)
-* **Expo CLI** (wird via `npx expo …` genutzt)
-* **EAS CLI** (`npm i -g eas-cli`) – für APK-Builds
-* **Git** (und optional GitHub Desktop)
-* **Android Studio** inkl. **SDK, Emulator, Platform-Tools**, AVD (z. B. `Medium_Phone_API_36.0`)
+---
+
+## Voraussetzungen & Versionen
+
+- **Node.js** (inkl. npm)
+- **Git**
+- **Expo CLI** via `npx expo …`
+- **EAS CLI** (`npm i -g eas-cli`) für Builds
+- **Android Studio** + SDK + Emulator
+
+> Windows (für Emulator):
+> - `ANDROID_SDK_ROOT` setzen
+> - `platform-tools` und `emulator` in den PATH aufnehmen
 
 ---
 
@@ -40,14 +57,44 @@ Ziel: Stammtische anlegen/anzeigen, Benutzerprofile pflegen (inkl. Avatar), Anme
 git clone https://github.com/SBludau/steinmetz-stammtisch-app.git
 cd steinmetz-stammtisch-app
 
-# 2) Abhängigkeiten
-npm install
+# 2) Abhängigkeiten exakt wie im lockfile
+npm ci
 
-# 3) Entwickeln/Starten
-npx expo start
+# 3) Dev-Server starten
+npx expo start -c
 # Web: 'w' drücken
 # Android-Emulator: 'a' drücken (Emulator muss laufen)
-```
+````
+
+---
+
+## Dev-Server & Arbeitsweise
+
+**Expo Dev-Server** liefert Live-Reload & Fast Refresh.
+Startvarianten:
+
+* **Standard (Expo Go ausreichend):**
+
+  ```bash
+  npx expo start -c
+  ```
+
+  * `w` → Web
+  * `a` → Android Emulator (Expo Go App installiert)
+  * `r` → Reload
+  * `shift+r` → Cache leeren
+
+* **Mit Dev Client (falls native Module nötig):**
+
+  ```bash
+  npx expo start -c --dev-client
+  ```
+
+  > Benötigt eine Dev-Client-App auf dem Gerät/Emulator (via EAS einmalig bauen).
+  > Für dieses Projekt reicht meist **Expo Go** – Dev Client ist optional.
+  > Nein => ohne Dev Client ging google Login nicht!
+
+**Tipp:** Wenn irgendwas „komisch“ ist → `-c` (Cache clear) verwenden.
 
 ---
 
@@ -56,10 +103,10 @@ npx expo start
 ### Supabase Projekt
 
 * **Project URL**: `https://bcbqnkycjroiskwqcftc.supabase.co`
-* **anon public key**: (im Code in `src/lib/supabase.ts` hinterlegt)
-  **Wichtig:** *Nie den service\_role key ins Frontend/Repo packen!*
+* **anon public key**: im Code in `src/lib/supabase.ts`
+  **Wichtig:** *Kein `service_role` Key im Frontend!*
 
-### Auth URLs in Supabase (Authentication → URL configuration)
+### Auth URLs (Authentication → URL configuration)
 
 * **Site URL**: `stammtisch://auth-callback`
 * **Additional Redirect URLs**:
@@ -69,8 +116,8 @@ npx expo start
 
 ### Google OAuth (Authentication → Providers → Google)
 
-* **Client ID** & **Client Secret** aus Google Cloud Console eintragen (Provider aktivieren)
-* Consent Screen: App-Name, Support-E-Mail, ggf. Logo/Branding
+* Client ID & Secret aus der Google Cloud Console
+* Consent-Screen konfigurieren
 
 ### Deep Link in der App
 
@@ -79,8 +126,7 @@ npx expo start
   ```json
   { "expo": { "scheme": "stammtisch" } }
   ```
-* **Callback-Screen**: `app/auth-callback.tsx`
-  – tauscht den OAuth-Code/Token gegen eine Supabase-Session und leitet auf `/` (Startseite) um.
+* Callback-Screen: `app/auth-callback.tsx` (tauscht Code/Token und leitet auf `/`)
 
 ---
 
@@ -95,21 +141,16 @@ npx expo start
 
 ### Android-Emulator
 
-1. Emulator per AVD Manager anlegen (z. B. `Medium_Phone_API_36.0`), starten:
-
-   ```bash
-   emulator -list-avds
-   emulator -avd Medium_Phone_API_36.0
-   ```
+1. AVD anlegen (z. B. `Medium_Phone_API_36.0`) & starten.
 2. Expo starten:
 
    ```bash
    npx expo start
-   # dann 'a' drücken
+   # 'a' drücken
    ```
-3. Wenn Expo Go im Emulator fehlt: im Play Store installieren, dann erneut `a`.
+3. Falls Expo Go fehlt: im Play Store installieren.
 
-**Hinweis zu SDK-Pfaden (Windows, temporär in der Session):**
+**Windows-Pfadvariablen (temporär):**
 
 ```powershell
 $env:ANDROID_SDK_ROOT = "C:\Users\Sebastian Bludau\AppData\Local\Android\Sdk"
@@ -181,155 +222,138 @@ eas build -p android --profile preview
 ```
 stammtisch-app/
 ├─ app/
-│  ├─ _layout.tsx                # Root-Layout: lädt Font "Broadway", StatusBar, importiert global.css (Web)
-│  ├─ auth-callback.tsx          # Deep-Link-Ziel: tauscht OAuth-Code/Token gegen Session, leitet zu "/"
-│  ├─ login.tsx                  # Login (Google OAuth + E-Mail/Passwort) mit Deep-Link-Redirect
+│  ├─ _layout.tsx
+│  ├─ auth-callback.tsx
+│  ├─ login.tsx
 │  └─ (tabs)/
-│     ├─ _layout.tsx             # (Tabs-Layout, Header aus, wir nutzen eigene BottomNav)
-│     ├─ index.tsx               # Startseite (Banner, Profil-Karte, Listen Bevorstehend/Früher, Reload)
-│     ├─ new_stammtisch.tsx      # Formular + Kalender (2. Freitag markiert, nächster 2. Freitag vorausgewählt)
-│     └─ profile.tsx             # Profil bearbeiten (Textfelder + Avatar-Upload in Storage)
+│     ├─ _layout.tsx            # Expo Tabs, TabBar versteckt (eigene BottomNav)
+│     ├─ index.tsx              # Startseite
+│     ├─ new_stammtisch.tsx     # Neuer Stammtisch
+│     ├─ profile.tsx            # Profil
+│     ├─ stats.tsx              # ⭐ NEU: Statistiken (Top-Listen, Streaks, Spender)
+│     └─ hall_of_fame.tsx       # ⭐ NEU: Hall of Fame (alphabetisch, Auszeichnungen)
 ├─ src/
-│  ├─ lib/
-│  │  └─ supabase.ts             # Supabase-Client (Project URL + anon key)
-│  ├─ components/
-│  │  └─ BottomNav.tsx           # Eigene Bottom-Navigation (Icons aus assets/nav)
+│  ├─ lib/supabase.ts
+│  ├─ components/BottomNav.tsx  # eigene Navi (PNG-Icons aus assets/nav)
 │  └─ theme/
-│     ├─ colors.ts               # Farbschema (Schwarz, Gold, Rot, Weiß) + Radius
-│     └─ typography.ts           # Textstile (Broadway für Headlines, System Sans für Body)
+│     ├─ colors.ts
+│     └─ typography.ts
 ├─ assets/
 │  ├─ images/
-│  │  ├─ banner.png              # Banner oben
-│  │  └─ favicon.png             # App-Icon (auch Android adaptive foreground)
+│  │  ├─ banner.png
+│  │  └─ favicon.png
 │  ├─ nav/
 │  │  ├─ startseite.png
 │  │  ├─ neuer_stammtisch.png
 │  │  ├─ statistiken.png
 │  │  └─ hallo_of_fame.png
-│  └─ fonts/
-│     └─ BROADW.ttf              # Überschrift/Highlight (Broadway)
-├─ app.json                      # Expo-App-Konfiguration
-├─ eas.json                      # EAS Build-Profile
-├─ app/global.css                # Scrollbar-Farben (nur Web)
-├─ package.json                  # Dependencies & Scripts
-└─ README.md                     # Diese Datei
+│  └─ fonts/BROADW.ttf
+├─ app.json
+├─ eas.json
+├─ app/global.css
+├─ package.json
+└─ README.md
 ```
 
-### Wichtige Dateiinhalte (Kurzbeschreibung)
+---
 
-* **`src/lib/supabase.ts`**
-  Initialisiert den Supabase-Client mit `createClient(PROJECT_URL, ANON_PUBLIC_KEY)`.
+## Neue Seiten: **Statistiken** & **Hall of Fame**
 
-* **Startseite `app/(tabs)/index.tsx`**
+### `app/(tabs)/stats.tsx`
 
-  * Lädt Profil (`profiles`), Avatar (Storage), Stammtisch-Einträge (`stammtisch`).
-  * Teilt in „Bevorstehend“ vs. „Früher“, sortiert, listet in Cards.
-  * Realtime (`postgres_changes` auf `stammtisch`) + Broadcast (`stammtisch-saved`) → Live-Updates.
+* **Top 5 Teilnehmer (dieses Jahr)** → `stammtisch_participants.status = 'going'`
+* **Top 3 längste Serien** → über chronologisch sortierte `stammtisch`-Events
+* **Top 5 Spender (dieses Jahr)** → `birthday_rounds.settled_at` innerhalb des Jahres
+* Zeigt Namen & Avatare aus `profiles` (Bucket `avatars`)
 
-* **Neuer Stammtisch `app/(tabs)/new_stammtisch.tsx`**
+### `app/(tabs)/hall_of_fame.tsx`
 
-  * Kalender via `react-native-calendars`.
-  * Hilfsfunktionen bestimmen 2. Freitag / nächsten 2. Freitag.
-  * Speichert in DB, sendet Broadcast, navigiert zurück.
+* **Alle Mitglieder alphabetisch** nach Nachnamen (`localeCompare('de')`)
+* **Auszeichnungen** als Emojis mit Platzierung & Accessibility-Label:
 
-* **Profil `app/(tabs)/profile.tsx`**
+  * 🏆 Dauerbrenner (Top-Teilnahmen)
+  * 🔥 Serien-Junkie (Top-Streaks)
+  * 🍻 Edler Spender (Top-Spender)
 
-  * Textfelder + Bildauswahl/Kamera via `expo-image-picker`.
-  * Upload in **Bucket `avatars`** (public), Pfad `auth_user_id/timestamp.ext`.
-  * Speichert Pfad in `profiles.avatar_url`.
+### Navigation
 
-* **Login `app/login.tsx`**
+* `app/(tabs)/_layout.tsx` enthält:
 
-  * E-Mail/Passwort (`signInWithPassword`, `signUp`).
-  * Google OAuth mit `expo-web-browser` + `expo-linking`, **Deep-Link** statt localhost.
-  * `redirectTo` (native) = `stammtisch://auth-callback`.
-  * Web-Redirect = `window.location.origin`.
+  ```tsx
+  <Tabs.Screen name="stats" />
+  <Tabs.Screen name="hall_of_fame" />
+  ```
+* `src/components/BottomNav.tsx`:
 
-* **Auth-Callback `app/auth-callback.tsx`**
-
-  * Liest `code`/`access_token` aus dem Deep Link.
-  * `exchangeCodeForSession` / `getSession` → Weiterleitung auf `/`.
-
-* **BottomNav `src/components/BottomNav.tsx`**
-
-  * Feste Höhe + Safe-Area.
-  * Schwarzer Hintergrund, Icons aus `assets/nav`, responsiv skalierend.
-
-* **Theme**
-
-  * `colors.ts`: zentrale Farben (Schwarz/Gold/Rot/Weiß) + `radius`.
-  * `typography.ts`: `type.h1/h2/body/button` etc., Headlines `Broadway`, Body = System Sans.
+  * `router.replace('/stats')`
+  * `router.replace('/hall_of_fame')`
 
 ---
 
 ## Datenbank & Storage
 
-### Tabellen (vereinfacht)
+**Tabellen (vereinfacht):**
 
-* **`public.profiles`**
-  `auth_user_id uuid` (FK → `auth.users`), `first_name`, `last_name`, `title`, `birthday date`, `quote`, `avatar_url`.
-* **`public.stammtisch`**
-  `id bigint` (PK), `date date`, `location text`, `notes text`.
-* **`public.stammtisch_participants`**
-  `stammtisch_id bigint`, `auth_user_id uuid`, `status ('going'|'maybe'|'declined')`.
+* `public.profiles (auth_user_id, first_name, last_name, avatar_url, ...)`
+* `public.stammtisch (id, date, location, notes)`
+* `public.stammtisch_participants (stammtisch_id, auth_user_id, status)`
+* `public.birthday_rounds (auth_user_id, settled_at, ...)`
 
-### Storage
+**Storage:**
 
-* **Bucket**: `avatars` (public).
-* Pfade: `<auth_user_id>/<timestamp>.<ext>`.
-* Policies: Upload/Read für eingeloggte Nutzer (über Dashboard konfiguriert).
+* Bucket **`avatars`** (public), Pfad: `<auth_user_id>/<timestamp>.<ext>`
 
 ---
 
 ## Theme (Farben & Schriftarten)
 
-* **Farben** (aus Banner entnommen, leicht angenähert):
-
-  * `bg` **#000000** (Hintergrund)
-  * `text` **#FFFFFF** (Schrift)
-  * `gold` **#C8AD2D** (Headlines/Highlights)
-  * `red` **#7A1F17** (Akzent/Umrandung)
-  * `cardBg` **#0E0E0E** (Karten)
-  * `border` **#7A1F17** (Rahmen)
-
-* **Fonts**
-
-  * Headlines: **BROADW\.ttf** (Broadway) – liegt in `assets/fonts/`, wird im Root-Layout geladen.
-  * Fließtext/Buttons: **System Sans** (keine extra Font nötig; Arial/Roboto/SF je Plattform).
-
-* **Web Scrollbars**: `app/global.css` (goldener Thumb, dunkler Track).
+* `colors.ts`: `bg` (Schwarz), `text` (Weiß), `gold`, `red`, `cardBg`, `border`
+* `typography.ts`: `type.h1/h2/body/...` (Überschriften: **Broadway**, Body: System-Sans)
 
 ---
 
-## Troubleshooting
+## Weiterentwickeln (Workflow & Git)
 
-* **Google Login öffnet `localhost`**
-  → In Supabase **Site URL** = `stammtisch://auth-callback`, Additional Redirects wie oben.
-  → `login.tsx` nutzt `Linking.createURL('auth-callback')` (kein localhost).
+### Täglicher Flow
 
-* **Nach Speichern sieht man den Eintrag erst nach Klick**
-  → Startseite hat `useFocusEffect` + Realtime + Broadcast `stammtisch-saved`.
+```bash
+# Vor dem Arbeiten: auf Remote-Stand bringen
+git fetch --all
+git switch main
+git pull
 
-* **UI überlappt mit Bottom-Nav**
-  → Seiten nutzen `ScrollView` mit `style={{ marginBottom: insets.bottom + NAV_BAR_BASE_HEIGHT }}`.
+# Eigene Änderungen
+git checkout -b feat/<kürzel>-<kurzbeschreibung>
+# ... Code ändern ...
+git add .
+git commit -m "feat(stats): Top-Listen hinzugefügt"
+git push -u origin HEAD
 
-* **SDK/adb nicht gefunden**
-  → PATH/Umgebungsvariablen temporär setzen (siehe Entwicklung/Emulator).
+# Merge (via GitHub PR) → zurück auf main
+git switch main
+git pull
+```
 
-* **Font-Fehler „Unable to resolve module … .TTF“**
-  → Dateiendung klein: `BROADW.ttf`, Pfad korrekt, Metro-Cache leeren: `npx expo start -c`.
+### Wenn mal alles schief geht (hart auf Remote zurück)
 
-* **Icons in Bottom-Nav zu groß/klein**
-  → In `BottomNav.tsx` `icon`-Breite feinjustieren (z. B. `width: '58%'` → `62%`).
+```powershell
+git fetch --all
+git switch -C main
+git reset --hard origin/main
+git clean -fdx       # löscht untracked & ignorierte Dateien (inkl. node_modules)
+npm ci
+npx expo start -c
+```
+
+---
 
 ---
 
 ## Sicherheitshinweise
 
-* **Service Role Key niemals** ins Frontend/Repo.
-* **RLS/Policies** in DB & Storage prüfen.
-* Public-Bucket nur für harmlose Medien (Avatare).
-* Für Produktion später: **eigene Domain**, sauberes **Branding** im Google Consent Screen, **Privacy Policy** & **Terms** hinterlegen.
+* **service\_role** niemals ins Frontend
+* RLS/Policies für Tabellen & Storage prüfen
+* Public-Bucket nur für harmlose Medien
 
 ---
 
@@ -337,7 +361,8 @@ stammtisch-app/
 
 ```bash
 # Entwicklung
-npx expo start
+npm ci
+npx expo start -c
 
 # Android Emulator
 emulator -list-avds
@@ -350,14 +375,20 @@ eas build -p android --profile preview
 git add .
 git commit -m "Update"
 git push
-```
 
----
+# lokaler Pfad Projekt
+C:\Users\Sebastian Bludau\Documents\stammtisch-app>
+
+# Datenbank
+https://supabase.com/dashboard/project/bcbqnkycjroiskwqcftc
+
+
+```
 
 **Owner:** @SBludau
 **Projekt:** steinmetz-stammtisch-app
 
-```
+````
 
 ---
-```
+
