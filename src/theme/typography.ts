@@ -1,26 +1,29 @@
+// src/theme/typography.ts
+import { Platform } from 'react-native'
 import { colors } from './colors'
 
-/**
- * Fonts:
- * - Überschriften/Highlights: BROADW.TTF  -> Family-Name "Broadway"
- * - Fließtext/Buttons: System-Sans (kein fontFamily gesetzt = iOS/Android/Web Standard)
- */
+// Plattform-sicheres Basis-Font (ohne eigene Dateien)
 export const fonts = {
-  heading: 'Broadway', // muss in app/_layout.tsx mit genau diesem Namen via useFonts geladen werden
+  base: Platform.select({
+    ios: 'Verdana',     // iOS hat Verdana vorinstalliert
+    web: 'Verdana',     // Web meist vorhanden; sonst Browser-Fallback
+    android: 'sans-serif', // Android-Standardschrift (kompatibel)
+    default: undefined, // fällt auf Systemsans zurück
+  }),
 }
 
 export const type = {
-  // Überschriften in Gold, Broadway
-  h1: { fontFamily: fonts.heading, fontSize: 28, lineHeight: 34, color: colors.gold },
-  h2: { fontFamily: fonts.heading, fontSize: 22, lineHeight: 28, color: colors.gold },
+  // Überschriften (gleiches Font, einfach größer & fetter)
+  h1: { fontFamily: fonts.base, fontSize: 28, lineHeight: 34, fontWeight: '700', color: colors.gold },
+  h2: { fontFamily: fonts.base, fontSize: 22, lineHeight: 28, fontWeight: '700', color: colors.gold },
 
-  // Standard-Text: System-Sans (Arial/Roboto/SF – je nach Plattform)
-  body: { fontSize: 16, lineHeight: 22, color: colors.text },
-  bodyMuted: { fontSize: 14, lineHeight: 20, color: '#FFFFFF99' },
+  // Standard-Text
+  body: { fontFamily: fonts.base, fontSize: 16, lineHeight: 22, fontWeight: '400', color: colors.text },
+  bodyMuted: { fontFamily: fonts.base, fontSize: 14, lineHeight: 20, fontWeight: '400', color: '#FFFFFF99' },
 
-  // Buttons: System-Sans, etwas fetter
-  button: { fontSize: 16, fontWeight: '600', color: colors.text },
+  // Buttons: etwas fetter
+  button: { fontFamily: fonts.base, fontSize: 16, lineHeight: 22, fontWeight: '600', color: colors.text },
 
-  // Kleintext (optional)
-  caption: { fontSize: 12, lineHeight: 16, color: '#FFFFFF99' },
+  // Kleintext
+  caption: { fontFamily: fonts.base, fontSize: 12, lineHeight: 16, fontWeight: '400', color: '#FFFFFF99' },
 }

@@ -41,6 +41,9 @@ export default function AdminUsersScreen() {
   const [myRole, setMyRole] = useState<Role>('member')
   const [myProfileId, setMyProfileId] = useState<number | null>(null)
 
+  // Google-Avatar-Fallbacks (auth.identities), Key = auth_user_id
+  const [fallbackAvatars, setFallbackAvatars] = useState<Record<string, string>>({})
+
   const publicUrlFor = (path: string | null) => {
     if (!path) return null
     const { data } = supabase.storage.from('avatars').getPublicUrl(path)
@@ -71,15 +74,38 @@ export default function AdminUsersScreen() {
     setMyRole((me?.role ?? 'member') as Role)
     setMyProfileId(me?.id ?? null)
 
-    // alle Profile laden (SuperUser darf lesen, Aktionen später nur Admin)
+    // alle Profile laden
     const { data, error } = await supabase
       .from('profiles')
       .select('id,first_name,middle_name,last_name,degree,role,avatar_url,title,auth_user_id,self_check,is_active')
       .order('last_name', { ascending: true })
       .order('first_name', { ascending: true })
 
-    if (error) setError(error.message)
-    else setRows((data ?? []) as ProfileRow[])
+    if (error) {
+      setError(error.message)
+      setLoading(false)
+      return
+    }
+
+    const list = (data ?? []) as ProfileRow[]
+    setRows(list)
+
+    // Google-Avatar-Fallbacks nachladen (leise ignorieren, falls RPC fehlt)
+    try {
+      const ids = list.map(r => r.auth_user_id).filter((x): x is string => !!x)
+      if (ids.length) {
+        const { data: fb, error: fbErr } = await supabase.rpc('public_get_google_avatars', { p_user_ids: ids })
+        if (!fbErr && Array.isArray(fb)) {
+          const map: Record<string, string> = {}
+          for (const row of fb as Array<{ auth_user_id: string; avatar_url?: string | null }>) {
+            if (row.avatar_url) map[row.auth_user_id] = row.avatar_url
+          }
+          setFallbackAvatars(map)
+        }
+      }
+    } catch {
+      // ignorieren
+    }
 
     setLoading(false)
   }
@@ -174,7 +200,6 @@ export default function AdminUsersScreen() {
 
   // ---- Edge Function Call: auth.users löschen (+ optional Profil & Avatare) ----
   async function callDeleteUser(userId: string, opts: { deleteProfile: boolean, deleteStorage: boolean }) {
-    // Admin-Token holen
     const { data: { session } } = await supabase.auth.getSession()
     const token = session?.access_token
     if (!token) throw new Error('Kein Admin-Token vorhanden.')
@@ -183,7 +208,7 @@ export default function AdminUsersScreen() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`, // wird in der Function geprüft (Admin-Rolle)
+        'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify({
         user_id: userId,
@@ -291,7 +316,10 @@ export default function AdminUsersScreen() {
         <Text style={type.h1}>Admin – Benutzerverwaltung</Text>
 
         {rows.map((p) => {
-          const avatar = publicUrlFor(p.avatar_url)
+          const uploaded = publicUrlFor(p.avatar_url)
+          const fallback = p.auth_user_id ? fallbackAvatars[p.auth_user_id] : undefined
+          const avatar = uploaded || fallback || null
+
           const linkedBadge = p.auth_user_id
             ? (p.self_check ? '✅ verknüpft & bestätigt' : '🔒 verknüpft (ausstehend)')
             : '🟢 unverknüpft'
@@ -357,6 +385,11 @@ export default function AdminUsersScreen() {
                 </View>
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  <Button
+                    title="Profil bearbeiten"
+                    onPress={() => router.push(`/admin/profile/${p.id}`)}
+                    disabled={!isAdmin || workingId === p.id}
+                  />
                   <Button
                     title="Entkoppeln"
                     onPress={() => onUnlink(p)}

@@ -1,6 +1,7 @@
 // app/(tabs)/stats.tsx
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { View, Text, Image, ScrollView, ActivityIndicator } from 'react-native'
+import { Picker } from '@react-native-picker/picker'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../src/components/BottomNav'
 import { supabase } from '../../src/lib/supabase'
@@ -10,21 +11,22 @@ import { type } from '../../src/theme/typography'
 // ——————————————————————————————————————————
 // Types
 // ——————————————————————————————————————————
-type Profile = { auth_user_id: string; first_name: string | null; last_name: string | null; avatar_url: string | null }
+type Profile = {
+  auth_user_id: string
+  first_name: string | null
+  last_name: string | null
+  avatar_url: string | null
+}
 type EventRow = { id: number; date: string }
 type ParticipantRow = { auth_user_id: string; status: 'going' | 'declined' | 'maybe' }
 type DonorRow = { auth_user_id: string; settled_at: string | null }
 
 type Ranked = { auth_user_id: string; value: number }
 
-// Avatar-Bucket (wie im Projekt)
-const AVATAR_BASE_URL =
-  'https://bcbqnkycjroiskwqcftc.supabase.co/storage/v1/object/public/avatars'
-
 // ——————————————————————————————————————————
 // Helpers
 // ——————————————————————————————————————————
-const Y = new Date().getFullYear()
+const CURRENT_YEAR = new Date().getFullYear()
 
 function fullName(p: Profile | undefined): string {
   if (!p) return 'Unbekannt'
@@ -33,9 +35,10 @@ function fullName(p: Profile | undefined): string {
   return `${fn} ${ln}`.trim() || 'Ohne Namen'
 }
 
-function avatarUrl(p: Profile | undefined): string | undefined {
-  if (!p?.avatar_url) return undefined
-  return `${AVATAR_BASE_URL}/${p.avatar_url}`
+function getPublicAvatarUrl(path: string | null | undefined): string | undefined {
+  if (!path) return undefined
+  const { data } = supabase.storage.from('avatars').getPublicUrl(path)
+  return data.publicUrl || undefined
 }
 
 // Kleine Bausteine
@@ -105,6 +108,8 @@ function PersonRow({ rank, name, avatar, detail }: { rank: number; name: string;
 export default function StatsScreen() {
   const insets = useSafeAreaInsets()
 
+  const [selectedYear, setSelectedYear] = useState<number>(CURRENT_YEAR)
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -112,14 +117,27 @@ export default function StatsScreen() {
   const [participantsByEvent, setParticipantsByEvent] = useState<Record<number, ParticipantRow[]>>({})
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [donors, setDonors] = useState<DonorRow[]>([])
+  const [fallbackAvatars, setFallbackAvatars] = useState<Record<string, string>>({}) // Google-Fallback
+
+  const years = useMemo(() => {
+    const arr: number[] = []
+    for (let y = CURRENT_YEAR; y >= CURRENT_YEAR - 5; y--) arr.push(y)
+    return arr
+  }, [])
+
+  const avatarFor = (uid: string | undefined) => {
+    if (!uid) return undefined
+    const p = profileById[uid]
+    return getPublicAvatarUrl(p?.avatar_url) || fallbackAvatars[uid]
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      // 1) Events dieses Jahr
-      const start = `${Y}-01-01`
-      const end = `${Y}-12-31`
+      // 1) Events im gewählten Jahr
+      const start = `${selectedYear}-01-01`
+      const end = `${selectedYear}-12-31`
       const { data: eventsData, error: e1 } = await supabase
         .from('stammtisch')
         .select('id,date')
@@ -130,7 +148,7 @@ export default function StatsScreen() {
       const evs = (eventsData ?? []) as EventRow[]
       setEvents(evs)
 
-      // 2) Teilnehmer je Event (sequentiell, Events sind überschaubar)
+      // 2) Teilnehmer je Event
       const byEvent: Record<number, ParticipantRow[]> = {}
       for (const ev of evs) {
         const { data, error } = await supabase
@@ -142,20 +160,38 @@ export default function StatsScreen() {
       }
       setParticipantsByEvent(byEvent)
 
-      // 3) Profiles (für Namen/Avatare)
+      // 3) Profiles (für Namen + Avatare)
       const { data: profData, error: e2 } = await supabase
         .from('profiles')
         .select('auth_user_id,first_name,last_name,avatar_url')
       if (e2) throw e2
-      setProfiles((profData ?? []) as Profile[])
+      const profs = (profData ?? []) as Profile[]
+      setProfiles(profs)
 
-      // 4) Donors (dieses Jahr settled)
+      // 3b) Google-Avatar-Fallback via RPC (optional)
+      try {
+        const userIds = profs.map(p => p.auth_user_id)
+        if (userIds.length) {
+          const { data: fb, error: fbErr } = await supabase.rpc('public_get_google_avatars', { p_user_ids: userIds })
+          if (!fbErr && Array.isArray(fb)) {
+            const map: Record<string, string> = {}
+            for (const row of fb as Array<{ auth_user_id: string; avatar_url?: string | null }>) {
+              if (row.avatar_url) map[row.auth_user_id] = row.avatar_url
+            }
+            setFallbackAvatars(map)
+          }
+        }
+      } catch {
+        // RPC existiert nicht -> ignorieren
+      }
+
+      // 4) Donors (gewähltes Jahr, settled)
       const { data: donorData, error: e3 } = await supabase
         .from('birthday_rounds')
         .select('auth_user_id,settled_at')
         .not('settled_at', 'is', null)
-        .gte('settled_at', `${Y}-01-01`)
-        .lte('settled_at', `${Y}-12-31`)
+        .gte('settled_at', start)
+        .lte('settled_at', end)
       if (e3) throw e3
       setDonors((donorData ?? []) as DonorRow[])
     } catch (e: any) {
@@ -163,7 +199,7 @@ export default function StatsScreen() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [selectedYear])
 
   useEffect(() => {
     load()
@@ -176,7 +212,7 @@ export default function StatsScreen() {
     return map
   }, [profiles])
 
-  // ——— 1) Top 5 Teilnahmen dieses Jahr (status = going) ———
+  // ——— 1) Top 5 Teilnahmen (status = going) ———
   const top5Teilnahmen: Ranked[] = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const ev of events) {
@@ -191,8 +227,8 @@ export default function StatsScreen() {
       .slice(0, 5)
   }, [events, participantsByEvent])
 
-  // ——— 2) Top 3 längste Serien in Folge (über chronologisch sortierte Events) ———
-  const top3Streaks: Ranked[] = useMemo(() => {
+  // ——— 2) Top 5 längste Serien ———
+  const top5Streaks: Ranked[] = useMemo(() => {
     const users = new Set<string>()
     for (const ev of events) {
       for (const p of (participantsByEvent[ev.id] || [])) users.add(p.auth_user_id)
@@ -215,10 +251,10 @@ export default function StatsScreen() {
       if (best > 0) streaks.push({ auth_user_id: uid, value: best })
     })
 
-    return streaks.sort((a, b) => b.value - a.value).slice(0, 3)
+    return streaks.sort((a, b) => b.value - a.value).slice(0, 5)
   }, [events, participantsByEvent])
 
-  // ——— 3) Top 5 Spender (dieses Jahr) ———
+  // ——— 3) Top 5 Spender ———
   const top5Spender: Ranked[] = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const d of donors) {
@@ -243,7 +279,7 @@ export default function StatsScreen() {
               key={row.auth_user_id}
               rank={idx + 1}
               name={fullName(prof)}
-              avatar={avatarUrl(prof)}
+              avatar={avatarFor(row.auth_user_id)}
               detail={`${row.value} ${unit}`}
             />
           )
@@ -262,9 +298,29 @@ export default function StatsScreen() {
         }}
       >
         <Text style={type.h1}>Statistiken</Text>
-        <Text style={{ ...type.bodyMuted, marginTop: 4 }}>
-          Das glorreiche {Y} – Zahlen, Fakten, (leichte) Übertreibungen.
-        </Text>
+
+        {/* Jahr-Auswahl */}
+        <View
+          style={{
+            marginTop: 8,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: radius.md,
+            overflow: 'hidden',
+            backgroundColor: '#0d0d0d',
+            width: 180,
+          }}
+        >
+          <Picker
+            selectedValue={String(selectedYear)}
+            onValueChange={(v) => setSelectedYear(parseInt(String(v), 10))}
+            dropdownIconColor={colors.text}
+          >
+            {years.map(y => (
+              <Picker.Item key={y} label={`Jahr ${y}`} value={String(y)} />
+            ))}
+          </Picker>
+        </View>
 
         {loading ? (
           <View style={{ marginTop: 24 }}>
@@ -280,8 +336,8 @@ export default function StatsScreen() {
             <Box>
               <Header
                 emoji="🏆"
-                title="Die Dauerbrenner"
-                subtitle={`Top 5 – am häufigsten ${Y} am Stammtisch`}
+                title="Beharrlichkeit führt zum Ziel"
+                subtitle={`Top 5 – Teilnehmer am Stammtisch im Jahr ${selectedYear}`}
               />
               {renderList(top5Teilnahmen, 'Teilnahmen', 'Noch keine Daten für dieses Jahr.')}
             </Box>
@@ -291,10 +347,10 @@ export default function StatsScreen() {
             <Box>
               <Header
                 emoji="🔥"
-                title="Serien-Junkies"
-                subtitle="Top 3 – am längsten in Folge anwesend"
+                title="Serien-Trinker"
+                subtitle={`Top 5 – der längsten Anwesenheitsserien im Jahr ${selectedYear}`}
               />
-              {renderList(top3Streaks, 'x in Folge', 'Noch keine Serien gefunden.')}
+              {renderList(top5Streaks, 'x in Folge', 'Noch keine Serien gefunden.')}
             </Box>
 
             <View style={{ height: 12 }} />
@@ -302,8 +358,8 @@ export default function StatsScreen() {
             <Box>
               <Header
                 emoji="🍻"
-                title="Edle Tropfen-Gönner"
-                subtitle={`Top 5 – großzügigste Spender ${Y}`}
+                title="Schankwirtschafts-Runden"
+                subtitle={`Top 5 – großzügigste Spender im Jahr ${selectedYear}`}
               />
               {renderList(top5Spender, 'Runden', 'Noch keine Runden verbucht.')}
             </Box>

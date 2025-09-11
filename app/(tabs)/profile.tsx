@@ -132,6 +132,10 @@ export default function ProfileScreen() {
       setError('Ungültiger akademischer Grad.')
       return
     }
+    if (form.quote && form.quote.length > 500) {
+      setError('Lebensweisheit darf maximal 500 Zeichen lang sein.')
+      return
+    }
 
     const { data: userData } = await supabase.auth.getUser()
     if (!userData?.user) { setError('Nicht eingeloggt.'); return }
@@ -348,11 +352,12 @@ export default function ProfileScreen() {
             }}
           />
 
-          <Text style={type.h2}>Titel (z. B. Rolle im Team)</Text>
+          {/* Umbenannt: Steinmetz Dienstgrad (DB-Feld bleibt title) */}
+          <Text style={type.h2}>Steinmetz Dienstgrad</Text>
           <TextInput
             value={form.title ?? ''}
             onChangeText={(v) => setForm((f) => ({ ...f, title: v }))}
-            placeholder="Organisator"
+            placeholder="z. B. Geselle, Polier, Meister"
             placeholderTextColor="#bfbfbf"
             style={{
               borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
@@ -391,13 +396,18 @@ export default function ProfileScreen() {
             </Picker>
           </View>
 
-          <Text style={type.h2}>Zitat</Text>
+          {/* Umbenannt: Lebensweisheit + Hinweis */}
+          <Text style={type.h2}>Lebensweisheit</Text>
+          <Text style={{ ...type.caption, color: '#9aa0a6', marginTop: -2, marginBottom: 2 }}>
+            max. 500 Zeichen
+          </Text>
           <TextInput
             value={form.quote ?? ''}
             onChangeText={(v) => setForm((f) => ({ ...f, quote: v }))}
             placeholder="Lieblingsspruch…"
             placeholderTextColor="#bfbfbf"
             multiline
+            maxLength={500}
             style={{
               borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
               padding: 10, minHeight: 60, backgroundColor: '#0d0d0d', color: colors.text,
