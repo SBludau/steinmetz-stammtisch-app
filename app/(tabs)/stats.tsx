@@ -101,7 +101,7 @@ function PersonRow({ rank, name, avatar, detail }: { rank: number; name: string;
   )
 }
 
-// Native-sichere Jahresauswahl (statt Picker)
+// Native-sichere Jahresauswahl (Chips)
 function YearChips({
   years,
   value,
@@ -112,22 +112,24 @@ function YearChips({
   onChange: (y: number) => void
 }) {
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-      {years.map((y) => {
+    <View style={{ flexDirection: 'row' }}>
+      {years.map((y, idx) => {
         const active = y === value
+        const isLast = idx === years.length - 1
         return (
           <Pressable
             key={y}
             onPress={() => onChange(y)}
             style={{
-              paddingVertical: 6,
-              paddingHorizontal: 10,
+              flex: 1,                            // <<< nimmt 1/3 Breite
+              paddingVertical: 10,
               borderRadius: radius.md,
               borderWidth: 1,
               borderColor: active ? colors.gold : colors.border,
               backgroundColor: active ? '#2a2a2a' : '#0d0d0d',
-              marginRight: 8,
-              marginTop: 8,
+              marginRight: isLast ? 0 : 8,        // Abstand nur zwischen den Chips
+              alignItems: 'center',               // Text zentriert
+              justifyContent: 'center',
             }}
           >
             <Text style={type.body}>{`Jahr ${y}`}</Text>
@@ -155,11 +157,8 @@ export default function StatsScreen() {
   const [donors, setDonors] = useState<DonorRow[]>([])
   const [fallbackAvatars, setFallbackAvatars] = useState<Record<string, string>>({}) // Google-Fallback
 
-  const years = useMemo(() => {
-    const arr: number[] = []
-    for (let y = CURRENT_YEAR; y >= CURRENT_YEAR - 5; y--) arr.push(y)
-    return arr
-  }, [])
+  // nur aktuelles Jahr und die letzten zwei
+  const years = useMemo(() => [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2], [])
 
   const avatarFor = (uid: string | undefined) => {
     if (!uid) return undefined
@@ -335,7 +334,7 @@ export default function StatsScreen() {
       >
         <Text style={type.h1}>Statistiken</Text>
 
-        {/* Jahr-Auswahl (Chips) */}
+        {/* Jahr-Auswahl (Chips) – jetzt volle Breite */}
         <View
           style={{
             marginTop: 8,
@@ -344,7 +343,7 @@ export default function StatsScreen() {
             borderRadius: radius.md,
             padding: 8,
             backgroundColor: '#0d0d0d',
-            alignSelf: 'flex-start',
+            width: '100%',                 // <<< volle Breite
           }}
         >
           <YearChips years={years} value={selectedYear} onChange={setSelectedYear} />
