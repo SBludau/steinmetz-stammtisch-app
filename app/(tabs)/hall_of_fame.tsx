@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { View, Text, Image, ScrollView, ActivityIndicator } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useFocusEffect } from '@react-navigation/native'
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../src/components/BottomNav'
 import { supabase } from '../../src/lib/supabase'
 import { colors, radius } from '../../src/theme/colors'
@@ -9,7 +10,8 @@ import { type } from '../../src/theme/typography'
 
 type Degree = 'none' | 'dr' | 'prof'
 type Profile = {
-  auth_user_id: string
+  id: number                 // ✨ neu: DB-Primärschlüssel als stabiler Key
+  auth_user_id: string | null
   first_name: string | null
   middle_name: string | null
   last_name: string | null
@@ -56,46 +58,16 @@ function Box({ children, style }: { children: React.ReactNode; style?: any }) {
   )
 }
 
-/** FIX: Header ohne leere <Text/> und ohne Inline-Kommentare/Whitespace-Strings */
+/** Header ohne Beschriftung */
 function TableHeader() {
-  const labels = [
-    { label: null, flex: 0, width: 32 },  // Thumb
-    { label: null, flex: 0.8 },           // Grad (ohne Überschrift)
-    { label: 'Vorname', flex: 1.2 },
-    { label: 'Mittelname', flex: 1.2 },
-    { label: 'Nachname', flex: 1.4 },
-    { label: 'Aktiv', flex: 0.9 },
-    { label: 'Dauerauftrag', flex: 1.0 },
-    { label: 'Auszeichnungen', flex: 2.0 },
-  ] as const
-
-  return (
-    <View style={{ flexDirection: 'row', paddingVertical: 6, alignItems: 'center' }}>
-      {/* Thumb-Spalte */}
-      <View style={{ width: labels[0].width || 0 }} />
-      {/* Restliche Spalten */}
-      {labels.slice(1).map((col, i) => (
-        <View key={i} style={{ flex: col.flex }}>
-          {col.label ? <Text style={type.bodyMuted}>{col.label}</Text> : null}
-        </View>
-      ))}
-    </View>
-  )
-}
-
-function Badge({ emoji, place }: { emoji: string; place: number }) {
-  return (
-    <Text style={{ fontSize: 16, marginLeft: 6 }}>
-      {emoji} #{place}
-    </Text>
-  )
+  return null
 }
 
 function TableRow({
   p,
-  awards,
+  awards,    // bleibt in den Props, wird aber nicht gerendert
   thumb,
-  activeIcon,
+  activeIcon, // bleibt in den Props, wird aber nicht gerendert
   showMoney,
 }: {
   p: Profile
@@ -129,17 +101,41 @@ function TableRow({
       {/* Grad */}
       <Text style={{ ...type.body, flex: 0.8 }}>{degLabel(p.degree)}</Text>
 
-      <Text style={{ ...type.body, flex: 1.2 }}>{safeStr(p.first_name)}</Text>
-      <Text style={{ ...type.body, flex: 1.2 }}>{safeStr(p.middle_name)}</Text>
-      <Text style={{ ...type.body, flex: 1.4 }}>{safeStr(p.last_name)}</Text>
-      <Text style={{ ...type.body, flex: 0.9 }}>{activeIcon}</Text>
-      <Text style={{ ...type.body, flex: 1.0 }}>{showMoney ? '💶' : ''}</Text>
+      {/* Namen – dynamisch schrumpfend, ohne Umbruch */}
+      <Text
+        style={{ ...type.body, flex: 1.2, minWidth: 0 }}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+        ellipsizeMode="clip"
+      >
+        {safeStr(p.first_name)}
+      </Text>
+      <Text
+        style={{ ...type.body, flex: 1.2, minWidth: 0 }}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+        ellipsizeMode="clip"
+      >
+        {safeStr(p.middle_name)}
+      </Text>
+      <Text
+        style={{ ...type.body, flex: 1.4, minWidth: 0 }}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+        ellipsizeMode="clip"
+      >
+        {safeStr(p.last_name)}
+      </Text>
 
-      <View style={{ flex: 2.0, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
-        {typeof awards.teilnahmen === 'number' && <Badge emoji="🏆" place={awards.teilnahmen} />}
-        {typeof awards.streak === 'number' && <Badge emoji="🔥" place={awards.streak} />}
-        {typeof awards.spender === 'number' && <Badge emoji="🍻" place={awards.spender} />}
+      {/* 💶 Dauerauftrag – maximal schmal */}
+      <View style={{ width: 26, alignItems: 'center' }}>
+        <Text style={type.body}>{showMoney ? '💶' : ''}</Text>
       </View>
+
+      {/* Auszeichnungen-Spalte entfernt */}
     </View>
   )
 }
@@ -160,21 +156,22 @@ export default function HallOfFameScreen() {
     const { data } = supabase.storage.from('avatars').getPublicUrl(path)
     return data.publicUrl || undefined
   }
-  const thumbFor = (p: Profile) => getPublicAvatarUrl(p.avatar_url) || fallbackAvatars[p.auth_user_id]
+  const thumbFor = (p: Profile) => getPublicAvatarUrl(p.avatar_url) || fallbackAvatars[p.auth_user_id || '']
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
+      // ✨ id mitladen für stabile Keys bei unverknüpften Profilen
       const { data: profData, error: e0 } = await supabase
         .from('profiles')
-        .select('auth_user_id,first_name,middle_name,last_name,degree,is_active,standing_order,avatar_url')
+        .select('id,auth_user_id,first_name,middle_name,last_name,degree,is_active,standing_order,avatar_url')
       if (e0) throw e0
       const profs = (profData ?? []) as Profile[]
       setProfiles(profs)
 
       try {
-        const userIds = profs.map(p => p.auth_user_id)
+        const userIds = profs.map(p => p.auth_user_id).filter(Boolean) as string[]
         if (userIds.length) {
           const { data: fb, error: fbErr } = await supabase.rpc('public_get_google_avatars', { p_user_ids: userIds })
           if (!fbErr && Array.isArray(fb)) {
@@ -226,6 +223,7 @@ export default function HallOfFameScreen() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useFocusEffect(useCallback(() => { load(); return () => {} }, [load]))
 
   const ranksTeilnahmen = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -290,6 +288,10 @@ export default function HallOfFameScreen() {
   const activeProfiles = useMemo(() => sortedProfiles.filter(p => !!p.is_active), [sortedProfiles])
   const passiveProfiles = useMemo(() => sortedProfiles.filter(p => !p.is_active), [sortedProfiles])
 
+  // kleine Helfer für stabile Keys
+  const kAct = (p: Profile) => `act-${p.auth_user_id ?? p.id}`
+  const kPass = (p: Profile) => `pass-${p.auth_user_id ?? p.id}`
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView
@@ -312,6 +314,7 @@ export default function HallOfFameScreen() {
           </View>
         ) : (
           <>
+            {/* Aktive */}
             <Box style={{ marginTop: 16 }}>
               <Text style={{ ...type.h2, marginBottom: 8 }}>Aktive Steinmetze</Text>
               <TableHeader />
@@ -320,21 +323,22 @@ export default function HallOfFameScreen() {
               ) : (
                 activeProfiles.map((p) => (
                   <TableRow
-                    key={`act-${p.auth_user_id}`}
+                    key={kAct(p)}                 // ✨ stabiler Key
                     p={p}
                     thumb={thumbFor(p)}
                     activeIcon="🟢"
                     showMoney={!!p.standing_order}
                     awards={{
-                      teilnahmen: ranksTeilnahmen.get(p.auth_user_id),
-                      streak: ranksStreaks.get(p.auth_user_id),
-                      spender: ranksSpender.get(p.auth_user_id),
+                      teilnahmen: ranksTeilnahmen.get(p.auth_user_id || ''),
+                      streak: ranksStreaks.get(p.auth_user_id || ''),
+                      spender: ranksSpender.get(p.auth_user_id || ''),
                     }}
                   />
                 ))
               )}
             </Box>
 
+            {/* Passive */}
             <Box style={{ marginTop: 16 }}>
               <Text style={{ ...type.h2, marginBottom: 8 }}>Passive Steinmetze</Text>
               <TableHeader />
@@ -343,15 +347,15 @@ export default function HallOfFameScreen() {
               ) : (
                 passiveProfiles.map((p) => (
                   <TableRow
-                    key={`pass-${p.auth_user_id}`}
+                    key={kPass(p)}                // ✨ stabiler Key
                     p={p}
                     thumb={thumbFor(p)}
                     activeIcon="🔴"
                     showMoney={!!p.standing_order}
                     awards={{
-                      teilnahmen: ranksTeilnahmen.get(p.auth_user_id),
-                      streak: ranksStreaks.get(p.auth_user_id),
-                      spender: ranksSpender.get(p.auth_user_id),
+                      teilnahmen: ranksTeilnahmen.get(p.auth_user_id || ''),
+                      streak: ranksStreaks.get(p.auth_user_id || ''),
+                      spender: ranksSpender.get(p.auth_user_id || ''),
                     }}
                   />
                 ))
