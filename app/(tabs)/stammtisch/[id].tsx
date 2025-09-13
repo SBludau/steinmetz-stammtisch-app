@@ -13,16 +13,20 @@ type Row = { id: number; date: string; location: string; notes: string | null }
 type Degree = 'none' | 'dr' | 'prof' | null
 type Role = 'member' | 'superuser' | 'admin'
 type Profile = {
-  auth_user_id: string
+  id: number
+  auth_user_id: string | null
   first_name: string | null
   middle_name?: string | null
   last_name: string | null
   degree?: Degree
   birthday?: string | null
   avatar_url: string | null
+  is_active?: boolean | null
 }
 
-// Helpers
+type AttStatus = 'going' | 'declined' | 'maybe'
+type BR = { id: number; auth_user_id: string; due_month: string; settled_stammtisch_id: number | null; approved_at?: string | null }
+
 const pad = (n: number) => (n < 10 ? `0${n}` : String(n))
 const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 const firstOfMonth = (dateStr: string) => {
@@ -69,29 +73,46 @@ export default function StammtischEditScreen() {
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
 
-  // Teilnehmer-Status
-  type AttStatus = 'going' | 'declined' | 'maybe'
+  // Teilnehmer (verknüpft & unverknüpft)
   const [profiles, setProfiles] = useState<Profile[]>([])
-  const [attendingMap, setAttendingMap] = useState<Record<string, AttStatus>>({})
+  const [attLinked, setAttLinked] = useState<Record<string, AttStatus>>({})
+  const [attUnlinked, setAttUnlinked] = useState<Record<number, AttStatus>>({})
   const [loadingAtt, setLoadingAtt] = useState(true)
   const [participantsCollapsed, setParticipantsCollapsed] = useState(false)
 
-  // Rolle für Löschbutton
-  const [myRole, setMyRole] = useState<Role>('member')
-  const isAdmin = myRole === 'admin'
+  // Kalender einklappbar
+  const [calendarCollapsed, setCalendarCollapsed] = useState(true)
 
-  // Geburtstags-Runden
-  type BR = { id: number; auth_user_id: string; due_month: string; settled_stammtisch_id: number | null }
+  // Rollen/Moderation
+  const [myRole, setMyRole] = useState<Role>('member')
+  const isAdmin = myRole === 'admin' || myRole === 'superuser'
+
+  // Offene Geburtstags-Runden (fällige)
   const [dueRounds, setDueRounds] = useState<BR[]>([])
   const [loadingRounds, setLoadingRounds] = useState(true)
   const [roundsErr, setRoundsErr] = useState<string | null>(null)
 
-  // Edle Spender
-  type Donor = { auth_user_id: string; settled_at: string | null }
+  // Gegebene Runden (dieser Stammtisch)
+  type Donor = { id: number; auth_user_id: string; settled_at: string | null; approved_at?: string | null }
   const [donors, setDonors] = useState<Donor[]>([])
   const [loadingDonors, setLoadingDonors] = useState(true)
 
-  // load event
+  // Moderation (alle Runden dieses Stammtischs)
+  const [moderation, setModeration] = useState<Donor[]>([])
+  const [loadingModeration, setLoadingModeration] = useState(true)
+
+  // nur am Tag + Folgetag erlauben
+  const isWithinGivingWindow = useMemo(() => {
+    if (!date) return false
+    const eventStart = new Date(date + 'T00:00:00')
+    const eventEnd = new Date(eventStart)
+    eventEnd.setDate(eventEnd.getDate() + 1)          // +1 Tag
+    eventEnd.setHours(23, 59, 59, 999)
+    const now = new Date()
+    return now >= eventStart && now <= eventEnd
+  }, [date])
+
+  // Stammtisch laden
   const load = useCallback(async () => {
     if (!Number.isFinite(idNum)) {
       setError('Ungültige ID.')
@@ -107,10 +128,7 @@ export default function StammtischEditScreen() {
         .eq('id', idNum)
         .maybeSingle()
       if (error) throw error
-      if (!data) {
-        setError('Eintrag nicht gefunden.')
-        return
-      }
+      if (!data) { setError('Eintrag nicht gefunden.'); return }
       setRow(data as Row)
       setDate(data.date ?? '')
       setLocation(data.location ?? '')
@@ -122,7 +140,7 @@ export default function StammtischEditScreen() {
     }
   }, [idNum])
 
-  // role
+  // Rolle
   useEffect(() => {
     ;(async () => {
       const { data: u } = await supabase.auth.getUser()
@@ -133,29 +151,45 @@ export default function StammtischEditScreen() {
     })()
   }, [])
 
-  // participants
+  // Teilnehmer laden
   const loadParticipants = useCallback(async () => {
     if (!Number.isFinite(idNum)) return
     setLoadingAtt(true)
     try {
+      // aktive Profile (inkl. unverknüpft)
       const { data: profs, error: pErr } = await supabase
         .from('profiles')
-        .select('auth_user_id, first_name, middle_name, last_name, degree, birthday, avatar_url')
+        .select('id, auth_user_id, first_name, middle_name, last_name, degree, birthday, avatar_url, is_active')
+        .eq('is_active', true)
         .order('last_name', { ascending: true })
       if (pErr) throw pErr
       const list = (profs ?? []) as Profile[]
       setProfiles(list)
 
-      const { data: parts, error: aErr } = await supabase
+      // verknüpfte Teilnehmer
+      const { data: partsLinked, error: aErr } = await supabase
         .from('stammtisch_participants')
         .select('auth_user_id, status')
         .eq('stammtisch_id', idNum)
       if (aErr) throw aErr
+      const linkedMap: Record<string, AttStatus> = {}
+      for (const row of partsLinked ?? []) {
+        if (row.auth_user_id) linkedMap[row.auth_user_id as string] = (row.status as AttStatus) || 'declined'
+      }
 
-      const map: Record<string, AttStatus> = {}
-      for (const p of list) map[p.auth_user_id] = 'declined'
-      for (const row of parts ?? []) map[row.auth_user_id as string] = (row.status as AttStatus) || 'declined'
-      setAttendingMap(map)
+      // unverknüpfte Teilnehmer
+      const { data: partsUnlinked, error: uErr } = await supabase
+        .from('stammtisch_participants_unlinked')
+        .select('profile_id, status')
+        .eq('stammtisch_id', idNum)
+      if (uErr) throw uErr
+      const unlinkedMap: Record<number, AttStatus> = {}
+      for (const row of partsUnlinked ?? []) {
+        unlinkedMap[(row as any).profile_id as number] = ((row as any).status as AttStatus) || 'declined'
+      }
+
+      setAttLinked(linkedMap)
+      setAttUnlinked(unlinkedMap)
     } catch (e: any) {
       console.error('Teilnehmer laden Fehler:', e.message)
     } finally {
@@ -163,23 +197,18 @@ export default function StammtischEditScreen() {
     }
   }, [idNum])
 
-  // rounds
+  // Offene Geburtstags-Runden (zum „Gegeben“)
   const loadBirthdayRounds = useCallback(async () => {
     setLoadingRounds(true)
     setRoundsErr(null)
     try {
-      if (!Number.isFinite(idNum) || !date) {
-        setDueRounds([])
-        return
-      }
+      if (!Number.isFinite(idNum) || !date) { setDueRounds([]); return }
       const dueMonth = firstOfMonth(date)
-      try {
-        await supabase.rpc('seed_birthday_rounds', { p_due_month: dueMonth, p_stammtisch_id: idNum })
-      } catch { /* ignore */ }
+      try { await supabase.rpc('seed_birthday_rounds', { p_due_month: dueMonth, p_stammtisch_id: idNum }) } catch {}
 
       const { data, error } = await supabase
         .from('birthday_rounds')
-        .select('id, auth_user_id, due_month, settled_stammtisch_id')
+        .select('id, auth_user_id, due_month, settled_stammtisch_id, approved_at')
         .lte('due_month', dueMonth)
         .is('settled_stammtisch_id', null)
         .order('due_month', { ascending: true })
@@ -193,18 +222,23 @@ export default function StammtischEditScreen() {
     }
   }, [idNum, date])
 
-  // donors
+  // Gegebene Runden dieses Stammtischs
   const loadDonors = useCallback(async () => {
     setLoadingDonors(true)
     try {
       if (!Number.isFinite(idNum)) { setDonors([]); return }
       const { data, error } = await supabase
         .from('birthday_rounds')
-        .select('auth_user_id, settled_stammtisch_id, settled_at')
+        .select('id, auth_user_id, settled_stammtisch_id, settled_at, approved_at')
         .eq('settled_stammtisch_id', idNum)
         .order('settled_at', { ascending: true })
       if (error) throw error
-      setDonors((data ?? []).map(d => ({ auth_user_id: d.auth_user_id as string, settled_at: d.settled_at as string | null })))
+      setDonors(((data ?? []) as any[]).map(d => ({
+        id: d.id as number,
+        auth_user_id: d.auth_user_id as string,
+        settled_at: d.settled_at as string | null,
+        approved_at: d.approved_at as string | null,
+      })))
     } catch {
       setDonors([])
     } finally {
@@ -212,11 +246,37 @@ export default function StammtischEditScreen() {
     }
   }, [idNum])
 
+  // Moderation (alle gegebenen Runden dieses Stammtischs)
+  const loadModeration = useCallback(async () => {
+    setLoadingModeration(true)
+    try {
+      if (!Number.isFinite(idNum)) { setModeration([]); return }
+      const { data, error } = await supabase
+        .from('birthday_rounds')
+        .select('id, auth_user_id, settled_at, approved_at')
+        .eq('settled_stammtisch_id', idNum)
+        .order('settled_at', { ascending: false })
+      if (error) throw error
+      setModeration(((data ?? []) as any[]).map(d => ({
+        id: d.id as number,
+        auth_user_id: d.auth_user_id as string,
+        settled_at: d.settled_at as string | null,
+        approved_at: d.approved_at as string | null,
+      })))
+    } catch {
+      setModeration([])
+    } finally {
+      setLoadingModeration(false)
+    }
+  }, [idNum])
+
   useEffect(() => { load() }, [load])
   useEffect(() => { loadParticipants() }, [loadParticipants])
   useEffect(() => { loadBirthdayRounds() }, [loadBirthdayRounds])
   useEffect(() => { loadDonors() }, [loadDonors])
+  useEffect(() => { if (isAdmin) loadModeration() }, [isAdmin, loadModeration])
 
+  // Speichern
   async function save() {
     if (!Number.isFinite(idNum)) { setError('Ungültige ID.'); return }
     try {
@@ -233,6 +293,7 @@ export default function StammtischEditScreen() {
     }
   }
 
+  // Löschen
   function confirmDelete() {
     if (!Number.isFinite(idNum)) { Alert.alert('Fehler', 'Ungültige ID.'); return }
     Alert.alert(
@@ -262,7 +323,7 @@ export default function StammtischEditScreen() {
     )
   }
 
-  // calendar theme
+  // Calendar theme
   const calendarTheme = {
     backgroundColor: colors.cardBg,
     calendarBackground: colors.cardBg,
@@ -277,7 +338,7 @@ export default function StammtischEditScreen() {
   const marked = date ? { [date]: { selected: true } } : undefined
   const initialDate = date || ymd(new Date())
 
-  // name + avatar helpers
+  // Name + Avatar
   const fullName = useMemo(
     () => (p: Profile) => {
       const fn = (p.first_name || '').trim()
@@ -290,27 +351,48 @@ export default function StammtischEditScreen() {
   const avatarUrlFor = (p: Profile | undefined | null) =>
     p?.avatar_url ? `${AVATAR_BASE_URL}/${p.avatar_url}` : null
 
-  // attendance toggle
-  async function toggleAttendance(userId: string) {
+  // Toggle attendance (linked)
+  async function toggleAttendanceLinked(userId: string) {
     if (!Number.isFinite(idNum)) return
-    const prev = attendingMap[userId] || 'declined'
+    const prev = attLinked[userId] || 'declined'
     const next: AttStatus = prev === 'going' ? 'declined' : 'going'
-    setAttendingMap(m => ({ ...m, [userId]: next }))
+    setAttLinked(m => ({ ...m, [userId]: next }))
     try {
       const { error } = await supabase
         .from('stammtisch_participants')
         .upsert([{ stammtisch_id: idNum, auth_user_id: userId, status: next }], { onConflict: 'stammtisch_id,auth_user_id' })
       if (error) throw error
     } catch {
-      setAttendingMap(m => ({ ...m, [userId]: prev }))
+      setAttLinked(m => ({ ...m, [userId]: prev }))
       Alert.alert('Fehler', 'Konnte Anwesenheit nicht speichern.')
     }
   }
 
-  // settle or create&settle
+  // Toggle attendance (unlinked)
+  async function toggleAttendanceUnlinked(profileId: number) {
+    if (!Number.isFinite(idNum)) return
+    const prev = attUnlinked[profileId] || 'declined'
+    const next: AttStatus = prev === 'going' ? 'declined' : 'going'
+    setAttUnlinked(m => ({ ...m, [profileId]: next }))
+    try {
+      const { error } = await supabase
+        .from('stammtisch_participants_unlinked')
+        .upsert([{ stammtisch_id: idNum, profile_id: profileId, status: next }], { onConflict: 'stammtisch_id,profile_id' })
+      if (error) throw error
+    } catch {
+      setAttUnlinked(m => ({ ...m, [profileId]: prev }))
+      Alert.alert('Fehler', 'Konnte Anwesenheit nicht speichern (unverknüpft).')
+    }
+  }
+
+  // „Gegeben“ (nur im Zeitfenster)
   async function givenCurrentOrOverdue(userId: string, roundId?: number) {
     if (!Number.isFinite(idNum) || !date) return
-    const attending = (attendingMap[userId] || 'declined') === 'going'
+    if (!isWithinGivingWindow) {
+      Alert.alert('Nicht möglich', 'Runden dürfen nur am Stammtisch-Tag und am Folgetag verbucht werden.')
+      return
+    }
+    const attending = (attLinked[userId] || 'declined') === 'going'
     if (!attending) {
       Alert.alert('Hinweis', 'Runden können nur von anwesenden Mitgliedern gegeben werden.')
       return
@@ -331,18 +413,23 @@ export default function StammtischEditScreen() {
       }
       await loadDonors()
       await loadBirthdayRounds()
+      if (isAdmin) await loadModeration()
     } catch (e: any) {
       Alert.alert('Fehler', e?.message ?? 'Konnte Runde nicht verbuchen.')
     }
   }
 
-  // extra rounds
+  // Extra-Runde (nur im Zeitfenster)
   async function giveExtraRound() {
     if (!Number.isFinite(idNum) || !date) return
+    if (!isWithinGivingWindow) {
+      Alert.alert('Nicht möglich', 'Extra-Runden nur am Stammtisch-Tag und am Folgetag.')
+      return
+    }
     const { data: sess } = await supabase.auth.getUser()
     const uid = sess?.user?.id
     if (!uid) { Alert.alert('Fehler', 'Nicht eingeloggt.'); return }
-    if ((attendingMap[uid] || 'declined') !== 'going') {
+    if ((attLinked[uid] || 'declined') !== 'going') {
       Alert.alert('Hinweis', 'Extra-Runden können nur gegeben werden, wenn du anwesend bist.')
       return
     }
@@ -373,18 +460,21 @@ export default function StammtischEditScreen() {
       if (err) throw err
       await loadDonors()
       await loadBirthdayRounds()
+      if (isAdmin) await loadModeration()
       Alert.alert('Danke!', 'Runde wurde verbucht.')
     } catch (e: any) {
       Alert.alert('Fehler', e?.message ?? 'Konnte Runde nicht verbuchen.')
     }
   }
 
-  // derived for lists
+  // abgeleitete Helfer
   const currentMonthKey = date ? firstOfMonth(date) : ''
   const currentMonth = date ? date.slice(5,7) : ''
   const currentMonthBirthdays = useMemo(() => {
     if (!date) return []
+    // nur verknüpfte (FK auf birthday_rounds)
     return profiles
+      .filter(p => !!p.auth_user_id)
       .filter(p => !!p.birthday && (p.birthday as string).slice(5,7) === currentMonth)
       .sort((a, b) =>
         (a.last_name || '').localeCompare((b.last_name || ''), 'de', { sensitivity: 'base' }) ||
@@ -402,21 +492,30 @@ export default function StammtischEditScreen() {
     return dueRounds.filter(r => r.due_month < currentMonthKey)
   }, [dueRounds, currentMonthKey])
 
-  // small "Gegeben" button (always pressable; checks attendance inside)
-  const SmallGivenBtn = ({ onPress, highlight }: { onPress: () => void; highlight?: boolean }) => (
-    <Pressable
-      onPress={onPress}
+  const Box = ({ children }: { children: React.ReactNode }) => (
+    <View
       style={{
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: highlight ? colors.gold : colors.border,
+        borderRadius: radius.md,
         backgroundColor: colors.cardBg,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: 10,
+        marginTop: 10,
       }}
     >
-      <Text style={{ color: highlight ? colors.gold : '#999', fontFamily: type.bold }}>Gegeben</Text>
-    </Pressable>
+      {children}
+    </View>
+  )
+
+  const activeProfiles = useMemo(
+    () => profiles.filter(p => p.is_active !== false),
+    [profiles]
+  )
+
+  // nur bestätigte Spender oben anzeigen
+  const approvedDonors = useMemo(
+    () => donors.filter(d => !!d.approved_at),
+    [donors]
   )
 
   return (
@@ -437,30 +536,18 @@ export default function StammtischEditScreen() {
           <Text style={{ ...type.body, color: colors.red, marginTop: 12 }}>{error}</Text>
         ) : (
           <>
-            {/* OBERER BLOCK – rote Rahmen-Box, darin 3 Spalten die gleich hoch sind (Höhe vom Kalender) */}
-            <View
-              style={{
-                marginTop: 8,
-                borderWidth: 2,
-                borderColor: '#B00020',
-                borderRadius: radius.lg,
-                padding: 8,
-                backgroundColor: 'transparent',
-              }}
-            >
-              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'stretch' }}>
-                {/* Kalender */}
-                <View
-                  style={{
-                    flex: 1,
-                    borderRadius: radius.md,
-                    backgroundColor: colors.cardBg,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    padding: 10,
-                  }}
-                >
-                  <Text style={{ ...type.caption, marginBottom: 8 }}>Datum</Text>
+            {/* Kalender – einklappbar */}
+            <Box>
+              <Pressable
+                onPress={() => setCalendarCollapsed(v => !v)}
+                style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}
+              >
+                <Text style={type.caption}>Datum</Text>
+                <Text style={type.caption}>{calendarCollapsed ? '▸' : '▾'}</Text>
+              </Pressable>
+
+              {!calendarCollapsed && (
+                <>
                   <Calendar
                     initialDate={initialDate}
                     markedDates={marked}
@@ -471,215 +558,193 @@ export default function StammtischEditScreen() {
                   <View style={{ marginTop: 8 }}>
                     <Text style={type.body}>Ausgewählt: {date || '–'}</Text>
                   </View>
+                </>
+              )}
+
+              {calendarCollapsed && (
+                <View style={{ marginTop: 4 }}>
+                  <Text style={type.body}>Ausgewählt: {date || '–'}</Text>
                 </View>
+              )}
+            </Box>
 
-                {/* Geburtstags-Runden */}
-                <View
-                  style={{
-                    flex: 1,
-                    borderRadius: radius.md,
-                    backgroundColor: colors.cardBg,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    padding: 10,
-                  }}
-                >
-                  <Text style={{ ...type.caption, marginBottom: 8 }}>
-                    Geburtstags-Runden – {date ? germanMonthYear(firstOfMonth(date)) : '–'}
-                  </Text>
+            {/* Geburtstags-Runden (Erfassung bleibt sichtbar) */}
+            <Box>
+              <Text style={{ ...type.caption, marginBottom: 8 }}>
+                Geburtstags-Runden – {date ? germanMonthYear(firstOfMonth(date)) : '–'}
+              </Text>
 
-                  {loadingRounds ? (
-                    <View style={{ padding: 8, alignItems: 'center' }}>
-                      <ActivityIndicator color={colors.gold} />
-                    </View>
-                  ) : roundsErr ? (
-                    <Text style={{ ...type.body, color: colors.red }}>{roundsErr}</Text>
+              {loadingRounds ? (
+                <View style={{ padding: 8, alignItems: 'center' }}>
+                  <ActivityIndicator color={colors.gold} />
+                </View>
+              ) : roundsErr ? (
+                <Text style={{ ...type.body, color: colors.red }}>{roundsErr}</Text>
+              ) : (
+                <View style={{ gap: 8 }}>
+                  <Text style={{ ...type.body, fontWeight: '600' }}>Diesen Monat</Text>
+                  {currentMonthBirthdays.length === 0 ? (
+                    <Text style={type.body}>Niemand hat Geburtstag.</Text>
                   ) : (
-                    <View style={{ gap: 8 }}>
-                      {/* Diesen Monat */}
-                      <Text style={{ ...type.body, fontWeight: '600' }}>Diesen Monat</Text>
-                      {currentMonthBirthdays.length === 0 ? (
-                        <Text style={type.body}>Niemand hat Geburtstag.</Text>
-                      ) : (
-                        currentMonthBirthdays.map(p => {
-                          const open = openCurrentMap.get(p.auth_user_id) || null
-                          const attending = (attendingMap[p.auth_user_id] || 'declined') === 'going'
-                          return (
-                            <View
-                              key={p.auth_user_id}
-                              style={{
-                                paddingVertical: 8,
-                                borderBottomWidth: 1,
-                                borderBottomColor: colors.border,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: 10,
-                              }}
-                            >
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-                                {avatarUrlFor(p) ? (
-                                  <Image
-                                    source={{ uri: avatarUrlFor(p)! }}
-                                    style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
-                                  />
-                                ) : (
-                                  <View
-                                    style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' }}
-                                  >
-                                    <Text style={{ color: colors.text, fontSize: 12 }}>🎂</Text>
-                                  </View>
-                                )}
-                                <View style={{ flex: 1 }}>
-                                  <Text style={type.body}>{fullName(p)}</Text>
-                                  <Text style={type.caption}>
-                                    {p.birthday ? `${germanDate(p.birthday)} – ${ageOnDate(p.birthday, date)} Jahre` : '—'}
-                                  </Text>
-                                </View>
-                              </View>
-                              <SmallGivenBtn
-                                highlight={attending}
-                                onPress={() => givenCurrentOrOverdue(p.auth_user_id, open?.id)}
+                    currentMonthBirthdays.map(p => {
+                      const open = p.auth_user_id ? openCurrentMap.get(p.auth_user_id) || null : null
+                      const attending = p.auth_user_id ? (attLinked[p.auth_user_id] || 'declined') === 'going' : false
+                      return (
+                        <View
+                          key={p.auth_user_id ?? `unlinked-${p.id}`}
+                          style={{
+                            paddingVertical: 8,
+                            borderBottomWidth: 1,
+                            borderBottomColor: colors.border,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                            {avatarUrlFor(p) ? (
+                              <Image
+                                source={{ uri: avatarUrlFor(p)! }}
+                                style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
                               />
+                            ) : (
+                              <View
+                                style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' }}
+                              >
+                                <Text style={{ color: colors.text, fontSize: 12 }}>🎂</Text>
+                              </View>
+                            )}
+                            <View style={{ flex: 1 }}>
+                              <Text style={type.body}>{fullName(p)}</Text>
+                              <Text style={type.caption}>
+                                {p.birthday ? `${germanDate(p.birthday)} – ${ageOnDate(p.birthday, date)} Jahre` : '—'}
+                              </Text>
                             </View>
-                          )
-                        })
-                      )}
+                          </View>
+                          {p.auth_user_id ? (
+                            <Pressable onPress={() => givenCurrentOrOverdue(p.auth_user_id!, open?.id)}>
+                              <Text style={{ color: (attending ? colors.gold : '#999') }}>Gegeben</Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      )
+                    })
+                  )}
 
-                      {/* Überfällig */}
-                      <Text style={{ ...type.body, fontWeight: '600', marginTop: 6 }}>Überfällig</Text>
-                      {overdueRounds.length === 0 ? (
-                        <Text style={type.body}>Keine offenen Runden aus Vormonaten.</Text>
-                      ) : (
-                        overdueRounds.map(r => {
-                          const p = profiles.find(x => x.auth_user_id === r.auth_user_id)
-                          const attending = (attendingMap[r.auth_user_id] || 'declined') === 'going'
-                          return (
-                            <View
-                              key={r.id}
-                              style={{
-                                paddingVertical: 8,
-                                borderBottomWidth: 1,
-                                borderBottomColor: colors.border,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: 10,
-                              }}
-                            >
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-                                {avatarUrlFor(p || null) ? (
-                                  <Image
-                                    source={{ uri: avatarUrlFor(p || null)! }}
-                                    style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
-                                  />
-                                ) : (
-                                  <View
-                                    style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' }}
-                                  >
-                                    <Text style={{ color: colors.text, fontSize: 12 }}>🎁</Text>
-                                  </View>
-                                )}
-                                <View style={{ flex: 1 }}>
-                                  <Text style={type.body}>{p ? fullName(p) : r.auth_user_id}</Text>
-                                  <Text style={type.caption}>fällig: {germanMonthYear(r.due_month)}</Text>
-                                </View>
-                              </View>
-                              <SmallGivenBtn
-                                highlight={attending}
-                                onPress={() => givenCurrentOrOverdue(r.auth_user_id, r.id)}
+                  <Text style={{ ...type.body, fontWeight: '600', marginTop: 6 }}>Überfällig</Text>
+                  {overdueRounds.length === 0 ? (
+                    <Text style={type.body}>Keine offenen Runden aus Vormonaten.</Text>
+                  ) : (
+                    overdueRounds.map(r => {
+                      const p = profiles.find(x => x.auth_user_id === r.auth_user_id)
+                      const attending = (attLinked[r.auth_user_id] || 'declined') === 'going'
+                      return (
+                        <View
+                          key={r.id}
+                          style={{
+                            paddingVertical: 8,
+                            borderBottomWidth: 1,
+                            borderBottomColor: colors.border,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                            {avatarUrlFor(p || null) ? (
+                              <Image
+                                source={{ uri: avatarUrlFor(p || null)! }}
+                                style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
                               />
+                            ) : (
+                              <View
+                                style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' }}
+                              >
+                                <Text style={{ color: colors.text, fontSize: 12 }}>🎁</Text>
+                              </View>
+                            )}
+                            <View style={{ flex: 1 }}>
+                              <Text style={type.body}>{p ? fullName(p) : r.auth_user_id}</Text>
+                              <Text style={type.caption}>fällig: {germanMonthYear(r.due_month)}</Text>
                             </View>
-                          )
-                        })
-                      )}
-                    </View>
+                          </View>
+                          <Pressable onPress={() => givenCurrentOrOverdue(r.auth_user_id, r.id)}>
+                            <Text style={{ color: (attending ? colors.gold : '#999') }}>Gegeben</Text>
+                          </Pressable>
+                        </View>
+                      )
+                    })
                   )}
                 </View>
+              )}
+            </Box>
 
-                {/* Spender + runder Extra-Button */}
-                <View style={{ flex: 1, gap: 8 }}>
-                  <View
-                    style={{
-                      flex: 1,
-                      borderRadius: radius.md,
-                      backgroundColor: colors.cardBg,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      padding: 10,
-                    }}
-                  >
-                    <Text style={{ ...type.caption, marginBottom: 8 }}>Edle Spender dieses Stammtischs</Text>
-                    {loadingDonors ? (
-                      <View style={{ padding: 8, alignItems: 'center' }}>
-                        <ActivityIndicator color={colors.gold} />
-                      </View>
-                    ) : donors.length === 0 ? (
-                      <Text style={type.body}>Noch keine Runde gegeben.</Text>
-                    ) : (
-                      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 6 }} showsVerticalScrollIndicator>
-                        {donors.map((d, idx) => {
-                          const p = profiles.find(x => x.auth_user_id === d.auth_user_id)
-                          const name = p ? fullName(p) : d.auth_user_id
-                          const avatar = avatarUrlFor(p || null)
-                          return (
-                            <View
-                              key={`${d.auth_user_id}-${idx}`}
-                              style={{
-                                flexDirection: 'row', alignItems: 'center', gap: 10,
-                                borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 8,
-                              }}
-                            >
-                              {avatar ? (
-                                <Image
-                                  source={{ uri: avatar }}
-                                  style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
-                                />
-                              ) : (
-                                <View
-                                  style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' }}
-                                >
-                                  <Text style={{ color: colors.text, fontSize: 12 }}>🥂</Text>
-                                </View>
-                              )}
-                              <Text style={type.body}>{name}</Text>
-                            </View>
-                          )
-                        })}
-                      </ScrollView>
-                    )}
-                  </View>
-
-                  <View
-                    style={{
-                      borderRadius: radius.md,
-                      backgroundColor: colors.cardBg,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: 10,
-                    }}
-                  >
-                    <Pressable
-                      onPress={giveExtraRound}
-                      style={{
-                        width: 120, height: 120, borderRadius: 60,
-                        borderWidth: 2, borderColor: colors.gold,
-                        backgroundColor: '#B00020',
-                        alignItems: 'center', justifyContent: 'center',
-                      }}
-                    >
-                      <Text style={{ color: colors.gold, fontFamily: type.bold, textAlign: 'center' }}>
-                        Eine{'\n'}Runde{'\n'}geben
-                      </Text>
-                    </Pressable>
-                  </View>
+            {/* Edle Spender – nur bestätigte anzeigen */}
+            <Box>
+              <Text style={{ ...type.caption, marginBottom: 8 }}>Edle Spender dieses Stammtischs</Text>
+              {loadingDonors ? (
+                <View style={{ padding: 8, alignItems: 'center' }}>
+                  <ActivityIndicator color={colors.gold} />
                 </View>
-              </View>
-            </View>
+              ) : approvedDonors.length === 0 ? (
+                <Text style={type.body}>Noch keine bestätigten Runden.</Text>
+              ) : (
+                <ScrollView style={{ maxHeight: 220 }} contentContainerStyle={{ paddingBottom: 6 }} showsVerticalScrollIndicator>
+                  {approvedDonors.map((d) => {
+                    const p = profiles.find(x => x.auth_user_id === d.auth_user_id)
+                    const name = p ? fullName(p) : d.auth_user_id
+                    const avatar = avatarUrlFor(p || null)
+                    return (
+                      <View
+                        key={`donor-${d.id}`}
+                        style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 10,
+                          borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 8,
+                        }}
+                      >
+                        {avatar ? (
+                          <Image
+                            source={{ uri: avatar }}
+                            style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
+                          />
+                        ) : (
+                          <View
+                            style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' }}
+                          >
+                            <Text style={{ color: colors.text, fontSize: 12 }}>🥂</Text>
+                          </View>
+                        )}
+                        <Text style={type.body}>{name}</Text>
+                      </View>
+                    )
+                  })}
+                </ScrollView>
+              )}
+            </Box>
 
-            {/* UNTERER BLOCK – große rote Box über die volle Breite */}
+            {/* Eine Runde geben – volle Breite, ohne Box */}
+            <Pressable
+              onPress={giveExtraRound}
+              style={{
+                marginTop: 10,
+                borderRadius: radius.md,
+                borderWidth: 2,
+                borderColor: colors.gold,
+                backgroundColor: '#B00020',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 16,
+                alignSelf: 'stretch',
+              }}
+            >
+              <Text style={{ color: colors.gold, fontFamily: type.bold, fontSize: 18 }}>
+                Eine Runde geben
+              </Text>
+            </Pressable>
+
+            {/* Felder + Speichern */}
             <View
               style={{
                 marginTop: 12,
@@ -690,67 +755,60 @@ export default function StammtischEditScreen() {
                 backgroundColor: 'transparent',
               }}
             >
-              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
-                {/* Felder links (2/3) */}
-                <View style={{ flex: 2 }}>
-                  <View style={{ gap: 8 }}>
-                    <Text style={type.caption}>Ort</Text>
-                    <TextInput
-                      value={location}
-                      onChangeText={setLocation}
-                      placeholder="Ort"
-                      placeholderTextColor={colors.gold}
-                      style={{
-                        borderWidth: 1, borderColor: colors.gold, padding: 10,
-                        borderRadius: radius.lg, color: colors.gold, backgroundColor: colors.cardBg,
-                      }}
-                    />
-                  </View>
-
-                  <View style={{ gap: 8, marginTop: 12 }}>
-                    <Text style={type.caption}>Geniale Ideen für die Nachwelt</Text>
-                    <TextInput
-                      value={notes}
-                      onChangeText={setNotes}
-                      placeholder="Notizen"
-                      placeholderTextColor={colors.gold}
-                      multiline
-                      numberOfLines={6}
-                      textAlignVertical="top"
-                      style={{
-                        borderWidth: 1, borderColor: colors.gold, padding: 10,
-                        borderRadius: radius.lg, color: colors.gold, minHeight: 120, backgroundColor: colors.cardBg,
-                      }}
-                    />
-                  </View>
-                </View>
-
-                {/* Speichern rechts (1/3) */}
-                <View style={{ flex: 1 }}>
-                  <Pressable
-                    onPress={save}
-                    disabled={saving}
+              <View style={{ gap: 12 }}>
+                <View style={{ gap: 6 }}>
+                  <Text style={type.caption}>Ort</Text>
+                  <TextInput
+                    value={location}
+                    onChangeText={setLocation}
+                    placeholder="Ort"
+                    placeholderTextColor={colors.gold}
                     style={{
-                      borderRadius: radius.md,
-                      borderWidth: 2,
-                      borderColor: colors.gold,
-                      backgroundColor: '#B00020',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: 12,
-                      minHeight: 180,
-                      opacity: saving ? 0.7 : 1,
+                      borderWidth: 1, borderColor: colors.gold, padding: 10,
+                      borderRadius: radius.lg, color: colors.gold, backgroundColor: colors.cardBg,
                     }}
-                  >
-                    <Text style={{ color: colors.gold, fontFamily: type.bold, fontSize: 18 }}>
-                      {saving ? 'Speichere…' : 'Speichern'}
-                    </Text>
-                  </Pressable>
+                  />
                 </View>
+
+                <View style={{ gap: 6 }}>
+                  <Text style={type.caption}>Geniale Ideen für die Nachwelt</Text>
+                  <TextInput
+                    value={notes}
+                    onChangeText={setNotes}
+                    placeholder="Notizen"
+                    placeholderTextColor={colors.gold}
+                    multiline
+                    numberOfLines={6}
+                    textAlignVertical="top"
+                    style={{
+                      borderWidth: 1, borderColor: colors.gold, padding: 10,
+                      borderRadius: radius.lg, color: colors.gold, minHeight: 120, backgroundColor: colors.cardBg,
+                    }}
+                  />
+                </View>
+
+                <Pressable
+                  onPress={save}
+                  disabled={saving}
+                  style={{
+                    borderRadius: radius.md,
+                    borderWidth: 2,
+                    borderColor: colors.gold,
+                    backgroundColor: '#B00020',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 12,
+                    opacity: saving ? 0.7 : 1,
+                  }}
+                >
+                  <Text style={{ color: colors.gold, fontFamily: type.bold, fontSize: 18 }}>
+                    {saving ? 'Speichere…' : 'Speichern'}
+                  </Text>
+                </Pressable>
               </View>
             </View>
 
-            {/* Teilnehmer (minimierbar) */}
+            {/* Teilnehmer – aktive inkl. unverknüpfte */}
             <View
               style={{
                 borderRadius: radius.md,
@@ -775,17 +833,19 @@ export default function StammtischEditScreen() {
                     <View style={{ padding: 8, alignItems: 'center' }}>
                       <ActivityIndicator color={colors.gold} />
                     </View>
-                  ) : profiles.length === 0 ? (
-                    <Text style={type.body}>Keine Nutzer gefunden.</Text>
+                  ) : activeProfiles.length === 0 ? (
+                    <Text style={type.body}>Keine aktiven Profile.</Text>
                   ) : (
                     <View>
-                      {profiles.map((p) => {
-                        const st = attendingMap[p.auth_user_id] || 'declined'
+                      {activeProfiles.map((p) => {
+                        const key = p.auth_user_id ?? `unlinked-${p.id}`
+                        const isLinked = !!p.auth_user_id
+                        const st = isLinked ? (attLinked[p.auth_user_id!] || 'declined') : (attUnlinked[p.id] || 'declined')
                         const isGoing = st === 'going'
                         return (
                           <Pressable
-                            key={p.auth_user_id}
-                            onPress={() => toggleAttendance(p.auth_user_id)}
+                            key={key}
+                            onPress={() => isLinked ? toggleAttendanceLinked(p.auth_user_id!) : toggleAttendanceUnlinked(p.id)}
                             style={{
                               paddingVertical: 10,
                               paddingHorizontal: 8,
@@ -820,9 +880,109 @@ export default function StammtischEditScreen() {
               )}
             </View>
 
+            {/* Moderation – nur Admin/Superuser */}
+            {isAdmin && (
+              <View
+                style={{
+                  borderRadius: radius.md,
+                  backgroundColor: colors.cardBg,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  padding: 10,
+                  marginTop: 12,
+                }}
+              >
+                <Text style={{ ...type.caption, marginBottom: 8 }}>Runden-Moderation</Text>
+
+                {loadingModeration ? (
+                  <ActivityIndicator color={colors.gold} />
+                ) : moderation.length === 0 ? (
+                  <Text style={type.body}>Keine Runden vorhanden.</Text>
+                ) : (
+                  <View>
+                    {moderation.map((r) => {
+                      const p = profiles.find(x => x.auth_user_id === r.auth_user_id)
+                      const name = p ? fullName(p) : r.auth_user_id
+                      const isApproved = !!r.approved_at
+                      return (
+                        <View
+                          key={`mod-${r.id}`}
+                          style={{
+                            paddingVertical: 8,
+                            borderBottomWidth: 1,
+                            borderBottomColor: colors.border,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                          }}
+                        >
+                          <Text style={type.body}>
+                            {name}
+                            {isApproved ? ' — bestätigt' : ' — unbestätigt'}
+                          </Text>
+                          <View style={{ flexDirection: 'row', gap: 8 }}>
+                            {!isApproved ? (
+                              <Pressable
+                                onPress={async () => {
+                                  try {
+                                    const { error } = await supabase.rpc('admin_approve_round', { p_id: r.id })
+                                    if (error) throw error
+                                    await loadDonors()
+                                    await loadModeration()
+                                    setStatus('Runde bestätigt.')
+                                  } catch (e: any) {
+                                    Alert.alert('Fehler', e?.message ?? 'Bestätigung fehlgeschlagen (RLS?).')
+                                  }
+                                }}
+                                style={{
+                                  paddingVertical: 6, paddingHorizontal: 10,
+                                  borderRadius: 8, borderWidth: 1,
+                                  borderColor: colors.border, backgroundColor: colors.cardBg,
+                                }}
+                              >
+                                <Text style={{ color: colors.gold }}>Bestätigen</Text>
+                              </Pressable>
+                            ) : null}
+                            <Pressable
+                              onPress={() => {
+                                Alert.alert('Löschen?', 'Runde wirklich löschen?', [
+                                  { text: 'Abbrechen', style: 'cancel' },
+                                  {
+                                    text: 'Löschen', style: 'destructive', onPress: async () => {
+                                      try {
+                                        const { error } = await supabase.rpc('admin_delete_round', { p_id: r.id })
+                                        if (error) throw error
+                                        await loadDonors()
+                                        await loadModeration()
+                                        setStatus('Runde gelöscht.')
+                                      } catch (e: any) {
+                                        Alert.alert('Fehler', e?.message ?? 'Löschen fehlgeschlagen (RLS?).')
+                                      }
+                                    }
+                                  }
+                                ])
+                              }}
+                              style={{
+                                paddingVertical: 6, paddingHorizontal: 10,
+                                borderRadius: 8, borderWidth: 1,
+                                borderColor: colors.border, backgroundColor: colors.cardBg,
+                              }}
+                            >
+                              <Text style={{ color: '#ff6b6b' }}>Löschen</Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      )
+                    })}
+                  </View>
+                )}
+              </View>
+            )}
+
             {/* unten: Löschen (nur Admin) */}
             <View style={{ gap: 10, marginTop: 16, marginBottom: 6 }}>
-              {isAdmin ? (
+              {myRole === 'admin' ? (
                 <Button color="#B00020" title={deleting ? 'Lösche…' : 'Eintrag löschen'} onPress={confirmDelete} />
               ) : null}
             </View>
