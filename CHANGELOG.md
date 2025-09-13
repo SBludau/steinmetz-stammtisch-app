@@ -6,9 +6,76 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Geplant
-- App-Store-Release-Profile (Production-Builds, iOS)
-- (Optional) Rankings als DB-Views/RPCs zur Performance-Optimierung
-- (Optional) A–Z-Trenner und Suche/Filter in der Hall of Fame
+- App Layout Check - Ausrichtung der Boxen und Schalter überprüfen
+- Wichtige Tools: Stein - Schere - Papier, Münze werfen und Vegas Counter Schwarz/Rot mit max Counter für Stats
+- Vegas Startbetrag und Datum in Adminbereich übernehmen
+- Check google AuthLogin Display
+
+---
+
+## [0.3.0] - 2025-09-12
+### Added
+- **Profile / DB & UI**
+  - Neue Profil-Felder: `role (member|superuser|admin)`, `is_active (bool)`, `self_check (bool)`,
+    `degree (none|dr|prof)`, `middle_name`, `standing_order (bool)`.
+  - **Lebensweisheit** (ehem. „Zitat“) mit Limit 500 Zeichen.
+  - **Steinmetz Dienstgrad** (Umbenennung von „Titel“ – freier Text).
+  - **Schalter**: „Aktiv“ und „Dauerauftrag“.
+  - **Verknüpfungsanzeige** inkl. Icon und Text (Google- oder E-Mail/Passwort-Account).
+  - **Admin-Links** von der Profilseite zu **/admin/claims** und **/admin/users**.
+- **Claim-Workflow**
+  - **/claim-profile**: Mitglieder wählen ein vorbereitetes Profil aus.
+  - **/admin/claims**: Admin/SuperUser genehmigen/ablehnen; Genehmigung setzt `self_check=true` und `is_active=true` und verknüpft `auth_user_id`.
+- **Admin – Benutzerverwaltung** (`/admin/users`)
+  - Rollen umstellen (Picker), Profile entkoppeln/löschen, Account + Profil löschen (Edge Function),
+    **Account löschen & Profil entkoppeln**, **Profil bearbeiten** (Sprung zum Profil-Edit).
+  - Thumbnails nutzen **Google-Avatar-Fallback**, wenn kein Upload existiert.
+- **Startseite** (`/(tabs)/index.tsx`)
+  - **Vegas Counter**: Kassenstand tagesgenau (Startbetrag 1500 € ab **01.08.2025**,
+    +20 €/Monat pro Mitglied mit `standing_order=true`).
+  - **Geburtstags-Runden pro Event-Monat**: Geburtstagskinder des Monats werden mit
+    Grad + Vor-/Mittel-/Nachname, Avatar (inkl. Google-Fallback), **Geburtsdatum (de-DE)** und **Alter** angezeigt.
+- **Einzel-Stammtisch** (`/(tabs)/stammtisch/[id].tsx`)
+  - Oberer Bereich als **3-Spalten-Layout** (einheitliche Höhe): Kalender · Geburtstags-Runden (aktuell + überfällig, jeweils mit **„Gegeben“**-Button) · Edle Spender (scrollbar) + **runder Extra-Runden-Button** (mehrfach möglich).
+  - **„Gegeben“** nur möglich, wenn der Nutzer für diesen Stammtisch **anwesend** ist (gilt für Geburtstags-, Nachhol- und Extra-Runden).
+  - Unterer Bereich als **große Box** über volle Breite: links **Ort** + **„Geniale Ideen für die Nachwelt“**, rechts hoher **Speichern**-Button in Rot/Gold.
+  - Teilnehmerliste **einklappbar**.
+  - **Löschen**-Button nur für **Admin** sichtbar.
+- **Statistiken** (`/(tabs)/stats.tsx`)
+  - **Jahr-Dropdown** (Default: aktuelles Jahr).
+  - Alle Rankings als **Top 5** (Teilnahmen, Serien, Spender).
+  - Überschriften/Texte:  
+    - 🏆 **„Beharrlichkeit führt zum Ziel“** – *Top 5 – Teilnehmer Stammtisch dieses Jahr*  
+    - 🔥 **Serien-Trinker** – *Top 5 – der längsten Anwesenheits-Serien*  
+    - 🍻 **Schankwirtschafts-Runden** – *Top 5 – großzügigste Spender*
+  - Avatare mit Google-Fallback.
+- **Hall of Fame** (`/(tabs)/hall_of_fame.tsx`)
+  - Zwei Tabellen: **Aktive Steinmetze** und **Passive Steinmetze**, jeweils nach Nachname sortiert.
+  - Anzeige: Grad (ohne separate Überschrift), Vor-/Mittel-/Nachname, Aktiv-Status (Icon), Dauerauftrag (💰 bei true), Auszeichnungen und **kleines Thumbnail** (Upload oder Google-Fallback).
+
+### Changed
+- **Typografie**: Entfernt Custom-Font; Standardisiert auf **Verdana, Arial, system-ui** (fett/normal/klein je nach Stil).
+- **Startseite**: „Neu laden“-Button entfernt; Realtime/Broadcast übernimmt Aktualisierung.
+- **Benennungen**
+  - „Titel“ → **„Steinmetz Dienstgrad“**
+  - „Zitat“ → **„Lebensweisheit“**
+  - „Notizen“ → **„Geniale Ideen für die Nachwelt“**
+- **Zugriffsrechte-Footer** (Profilseite):  
+  member → „DAU“, superuser → „SuperUser“, admin → „Admin – Wile E. Coyote – Genius“.
+
+### Fixed
+- **Geburtstags-Runden**
+  - Auf der Startseite: Anzeige der Geburtstage **im Monat des Stammtischs** inkl. Datum (de-DE) und Alter.
+  - Auf der Stammtisch-Seite: Liste **„Diesen Monat“** + **„Überfällig“** korrekt; **Gegeben**-Button in beiden Listen funktionsfähig und an Anwesenheit gebunden.
+- **Layout**
+  - 3-Spalten-Container fixiert (keine unendliche Höhenvergrößerung).
+  - Spender-Box scrollbar, Extra-Runden-Button runde Form, feste Größen.
+  - Kalender auf **⅓ Breite**, mittlere und rechte Box passen sich an.
+- **Rollen/Policies**
+  - Admin-Checks für Lösch-/Entkoppel-Aktionen korrigiert (Policy/Functions).
+- **Avatare**
+  - Google-Avatar-Fallback in Stats, Hall of Fame, Admin-Users und überall dort,
+    wo kein Profil-Upload vorhanden ist.
 
 ---
 
@@ -65,5 +132,5 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 - **Version bump**: In `app.json` bei produktiven Releases sinnvoll anheben.
 - **Tagging (optional)**:
   ```bash
-  git tag v0.2.0
+  git tag v0.3.0
   git push --tags
