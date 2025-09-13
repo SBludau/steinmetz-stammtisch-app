@@ -26,8 +26,8 @@ const BANNER = require('../../assets/images/banner.png')
 
 // ---- Helpers ----
 const degLabel = (d: Degree | null | undefined) => (d === 'dr' ? 'Dr. ' : d === 'prof' ? 'Prof. ' : '')
-const fullName = (p: Profile) =>
-  `${degLabel(p.degree)}${(p.first_name || '').trim()}${p.middle_name ? ' ' + p.middle_name.trim() : ''} ${(p.last_name || '').trim()}`.trim()
+const shortName = (p: Profile) =>
+  `${degLabel(p.degree)}${(p.first_name || '').trim()} ${(p.last_name || '').trim()}`.trim()
 
 const germanDate = (isoDate: string) => {
   try {
@@ -38,6 +38,15 @@ const germanMonthYear = (isoDate: string) => {
   try {
     return new Date(isoDate + 'T00:00:00').toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })
   } catch { return isoDate.slice(0, 7) }
+}
+const germanDateShort = (isoDate: string) => {
+  try {
+    const d = new Date(isoDate + 'T00:00:00')
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const yy = String(d.getFullYear()).slice(-2)
+    return `${dd}.${mm}.${yy}`
+  } catch { return isoDate }
 }
 const parseYMD = (iso: string) => {
   const [y, m, d] = iso.split('-').map(Number)
@@ -50,8 +59,7 @@ const ageOnDate = (birthdayIso: string, refIso: string) => {
   const b = parseYMD(birthdayIso)
   const r = parseYMD(refIso)
   let age = r.y - b.y
-  const beforeBirthday =
-    r.m < b.m || (r.m === b.m && r.d < b.d)
+  const beforeBirthday = r.m < b.m || (r.m === b.m && r.d < b.d)
   if (beforeBirthday) age -= 1
   return age
 }
@@ -77,6 +85,10 @@ export default function HomeScreen() {
   // Profile + Google-Fallback-Avatare
   const [profiles, setProfiles] = useState<Profile[] | null>(null)
   const [fallbackAvatars, setFallbackAvatars] = useState<Record<string, string>>({})
+
+  // (NEU) Vegas-Settings (aus DB)
+  const [vegasStartAmount, setVegasStartAmount] = useState<number>(1500)
+  const [vegasStartDate, setVegasStartDate] = useState<string>('2025-08-01')
 
   // Session prüfen
   useFocusEffect(
@@ -145,6 +157,28 @@ export default function HomeScreen() {
     loadProfiles()
   }, [sessionChecked, loadProfiles])
 
+  // (NEU) Settings laden
+  const loadVegasSettings = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'vegas')
+        .maybeSingle()
+      if (!error && data?.value) {
+        const startAmount = Number(data.value.start_amount)
+        const startDate = String(data.value.start_date || '')
+        if (!Number.isNaN(startAmount)) setVegasStartAmount(startAmount)
+        if (startDate.match(/^\d{4}-\d{2}-\d{2}$/)) setVegasStartDate(startDate)
+      }
+    } catch { /* ignore */ }
+  }, [])
+
+  useEffect(() => {
+    if (!sessionChecked) return
+    loadVegasSettings()
+  }, [sessionChecked, loadVegasSettings])
+
   // Realtime für Events
   useEffect(() => {
     if (!sessionChecked) return
@@ -166,7 +200,9 @@ export default function HomeScreen() {
     return () => { supabase.removeChannel(ch) }
   }, [sessionChecked])
 
-  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  // heute immer frisch berechnen bei jedem Aufruf
+  const todayStr = new Date().toISOString().slice(0, 10)
+
   const upcoming = useMemo(
     () => rows.filter(r => r.date >= todayStr).sort((a, b) => (cmpDate(a.date, b.date) || a.id - b.id)),
     [rows, todayStr]
@@ -241,16 +277,25 @@ export default function HomeScreen() {
     return getPublicAvatarUrl(p.avatar_url) || fallbackAvatars[p.auth_user_id] || undefined
   }
 
-  // Vegas Counter
-  const START_ISO = '2025-08-01'
+  // Vegas Counter (aus Settings)
   const standingCount = useMemo(() => (profiles ?? []).filter(p => !!p.standing_order).length, [profiles])
-  const monthsPassed = useMemo(() => countFirstsSince(START_ISO, todayStr), [todayStr])
+  const monthsPassed = useMemo(() => countFirstsSince(vegasStartDate, todayStr), [vegasStartDate, todayStr])
   const vegasTotal = useMemo(() => {
-    const start = 1500
     const inflow = standingCount * monthsPassed * 20
-    return start + inflow
-  }, [standingCount, monthsPassed])
+    return vegasStartAmount + inflow
+  }, [vegasStartAmount, standingCount, monthsPassed])
   const euro = (n: number) => n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })
+
+  // Bei jedem Focus alles frisch laden
+  useFocusEffect(
+    useCallback(() => {
+      if (!sessionChecked) return
+      loadData()
+      loadProfiles()
+      loadProfileCard()
+      loadVegasSettings() // (NEU)
+    }, [sessionChecked, loadData, loadProfiles, loadProfileCard, loadVegasSettings])
+  )
 
   // ---- UI ----
 
@@ -274,7 +319,6 @@ export default function HomeScreen() {
             <Text style={type.caption}>Geburtstags-Runden {germanMonthYear(item.date)}:</Text>
             {birthdays.map(p => (
               <View key={p.auth_user_id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                {/* Avatar (Upload → Fallback Google → sonst leer) */}
                 {avatarFor(p) ? (
                   <Image
                     source={{ uri: avatarFor(p)! }}
@@ -284,7 +328,7 @@ export default function HomeScreen() {
                   <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: colors.border }} />
                 )}
                 <Text style={type.body}>
-                  {fullName(p)} — {germanDate(p.birthday!)} – {ageOnDate(p.birthday!, item.date)} Jahre
+                  {shortName(p)} — {germanDateShort(p.birthday!)} ({ageOnDate(p.birthday!, item.date)})
                 </Text>
               </View>
             ))}
@@ -444,10 +488,10 @@ export default function HomeScreen() {
         >
           <Text style={type.h2}>Vegas Counter</Text>
           <Text style={{ ...type.body, fontWeight: '700', fontSize: 20 }}>
-            { (1500 + ( (profiles ?? []).filter(p => !!p.standing_order).length * countFirstsSince('2025-08-01', todayStr) * 20 )).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }) }
+            { vegasTotal.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }) }
           </Text>
           <Text style={type.caption}>
-            Grundbestand am 01.08.2025: 1.500,00 € + {countFirstsSince('2025-08-01', todayStr)} Monate mit {(profiles ?? []).filter(p => !!p.standing_order).length} Mitgliedern mit Dauerauftrag a 20 €
+            Startbetrag am {germanDate(vegasStartDate)}: {euro(vegasStartAmount)} + {monthsPassed} Monate mit {standingCount} Mitgliedern mit Dauerauftrag à 20 €
           </Text>
         </View>
       </ScrollView>

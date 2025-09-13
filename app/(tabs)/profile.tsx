@@ -1,6 +1,6 @@
+// app/(tabs)/profile.tsx
 import { useEffect, useMemo, useState } from 'react'
-import { View, Text, TextInput, Image, Button, ScrollView, Switch } from 'react-native'
-import { Picker } from '@react-native-picker/picker'
+import { View, Text, TextInput, Image, Button, ScrollView, Switch, Pressable } from 'react-native'
 import { useRouter } from 'expo-router'
 import * as ImagePicker from 'expo-image-picker'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -93,9 +93,7 @@ export default function ProfileScreen() {
 
       const { data, error } = await supabase
         .from('profiles')
-        .select(
-          'first_name,middle_name,last_name,title,birthday,quote,avatar_url,degree,role,is_active,self_check,standing_order'
-        )
+        .select('first_name,middle_name,last_name,title,birthday,quote,avatar_url,degree,role,is_active,self_check,standing_order')
         .eq('auth_user_id', uid)
         .maybeSingle()
 
@@ -257,22 +255,52 @@ export default function ProfileScreen() {
         ? 'Zugriffsrechte: SuperUser'
         : 'Zugriffsrechte: DAU'
 
+  // --- einfache, native-sichere Auswahl für Degree statt Picker ---
+  const DegreeChoice = ({ value, onChange }: { value: Degree; onChange: (v: Degree) => void }) => {
+    const Item = ({ v, label }: { v: Degree; label: string }) => {
+      const active = value === v
+      return (
+        <Pressable
+          onPress={() => onChange(v)}
+          style={{
+            paddingVertical: 8, paddingHorizontal: 12,
+            borderRadius: radius.md,
+            borderWidth: 1,
+            borderColor: active ? colors.gold : colors.border,
+            backgroundColor: active ? '#2a2a2a' : '#171717',
+            marginRight: 8
+          }}
+        >
+          <Text style={[type.body, { color: colors.text }]}>{label}</Text>
+        </Pressable>
+      )
+    }
+    return (
+      <View style={{ flexDirection: 'row', marginTop: 6 }}>
+        <Item v="none" label="— kein —" />
+        <Item v="dr" label="Dr." />
+        <Item v="prof" label="Prof." />
+      </View>
+    )
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView
         style={{ marginBottom: insets.bottom + NAV_BAR_BASE_HEIGHT }}
-        contentContainerStyle={{ padding: 16, gap: 12 }}
+        contentContainerStyle={{ padding: 16 }}
         persistentScrollbar
-        indicatorStyle="white"
         showsVerticalScrollIndicator
       >
         <Text style={type.h1}>Mein Profil</Text>
+
+        {/* Spacer */}
+        <View style={{ height: 12 }} />
 
         {/* Avatar-Card */}
         <View
           style={{
             alignItems: 'center',
-            gap: 10,
             padding: 12,
             borderRadius: radius.md,
             backgroundColor: colors.cardBg,
@@ -296,12 +324,23 @@ export default function ProfileScreen() {
               <Text style={type.body}>Kein Foto</Text>
             </View>
           )}
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Button title="Foto wählen" onPress={pickFromLibrary} />
-            <Button title="Kamera" onPress={takePhoto} />
+
+          {/* Buttons in einer Zeile mit Abständen */}
+          <View style={{ flexDirection: 'row', marginTop: 10 }}>
+            <View style={{ marginRight: 8 }}>
+              <Button title="Foto wählen" onPress={pickFromLibrary} />
+            </View>
+            <View>
+              <Button title="Kamera" onPress={takePhoto} />
+            </View>
           </View>
+
+          <View style={{ height: 10 }} />
           <Button title="Avatar hochladen & speichern" onPress={uploadAvatarAndSave} disabled={saving || !avatarPreviewUri} />
         </View>
+
+        {/* Spacer */}
+        <View style={{ height: 12 }} />
 
         {/* Form-Card */}
         <View
@@ -311,7 +350,6 @@ export default function ProfileScreen() {
             backgroundColor: colors.cardBg,
             borderWidth: 1,
             borderColor: colors.border,
-            gap: 8,
           }}
         >
           <Text style={type.h2}>Vorname</Text>
@@ -321,11 +359,13 @@ export default function ProfileScreen() {
             placeholder="Max"
             placeholderTextColor="#bfbfbf"
             style={{
+              marginTop: 6,
               borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
               padding: 10, backgroundColor: '#0d0d0d', color: colors.text,
             }}
           />
 
+          <View style={{ height: 12 }} />
           <Text style={type.h2}>Zweitname (nur Admin)</Text>
           <TextInput
             value={form.middle_name ?? ''}
@@ -334,12 +374,14 @@ export default function ProfileScreen() {
             placeholder="Karl"
             placeholderTextColor="#bfbfbf"
             style={{
+              marginTop: 6,
               borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
               padding: 10, backgroundColor: isAdmin ? '#0d0d0d' : '#151515', color: colors.text,
               opacity: isAdmin ? 1 : 0.6,
             }}
           />
 
+          <View style={{ height: 12 }} />
           <Text style={type.h2}>Nachname</Text>
           <TextInput
             value={form.last_name ?? ''}
@@ -347,11 +389,13 @@ export default function ProfileScreen() {
             placeholder="Mustermann"
             placeholderTextColor="#bfbfbf"
             style={{
+              marginTop: 6,
               borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
               padding: 10, backgroundColor: '#0d0d0d', color: colors.text,
             }}
           />
 
+          <View style={{ height: 12 }} />
           {/* Umbenannt: Steinmetz Dienstgrad (DB-Feld bleibt title) */}
           <Text style={type.h2}>Steinmetz Dienstgrad</Text>
           <TextInput
@@ -360,11 +404,13 @@ export default function ProfileScreen() {
             placeholder="z. B. Geselle, Polier, Meister"
             placeholderTextColor="#bfbfbf"
             style={{
+              marginTop: 6,
               borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
               padding: 10, backgroundColor: '#0d0d0d', color: colors.text,
             }}
           />
 
+          <View style={{ height: 12 }} />
           <Text style={type.h2}>Geburtstag (YYYY-MM-DD)</Text>
           <TextInput
             value={form.birthday ?? ''}
@@ -373,29 +419,20 @@ export default function ProfileScreen() {
             placeholderTextColor="#bfbfbf"
             autoCapitalize="none"
             style={{
+              marginTop: 6,
               borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
               padding: 10, backgroundColor: '#0d0d0d', color: colors.text,
             }}
           />
 
+          <View style={{ height: 12 }} />
           <Text style={type.h2}>Akademischer Grad</Text>
-          <View
-            style={{
-              borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
-              overflow: 'hidden', backgroundColor: '#0d0d0d'
-            }}
-          >
-            <Picker
-              selectedValue={form.degree}
-              onValueChange={(v) => setForm((f) => ({ ...f, degree: v as Degree }))}
-              dropdownIconColor={colors.text}
-            >
-              <Picker.Item label="— kein akademischer Grad —" value="none" />
-              <Picker.Item label="Dr." value="dr" />
-              <Picker.Item label="Prof." value="prof" />
-            </Picker>
-          </View>
+          <DegreeChoice
+            value={form.degree}
+            onChange={(v) => setForm((f) => ({ ...f, degree: v }))}
+          />
 
+          <View style={{ height: 12 }} />
           {/* Umbenannt: Lebensweisheit + Hinweis */}
           <Text style={type.h2}>Lebensweisheit</Text>
           <Text style={{ ...type.caption, color: '#9aa0a6', marginTop: -2, marginBottom: 2 }}>
@@ -414,12 +451,13 @@ export default function ProfileScreen() {
             }}
           />
 
+          <View style={{ height: 12 }} />
           {/* is_active */}
           <View
             style={{
               flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
               borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 10,
-              backgroundColor: '#0d0d0d', marginTop: 6
+              backgroundColor: '#0d0d0d'
             }}
           >
             <Text style={type.h2}>Aktiv</Text>
@@ -429,6 +467,7 @@ export default function ProfileScreen() {
             />
           </View>
 
+          <View style={{ height: 12 }} />
           {/* Dauerauftrag */}
           <View
             style={{
@@ -440,7 +479,6 @@ export default function ProfileScreen() {
               borderRadius: radius.md,
               padding: 10,
               backgroundColor: '#0d0d0d',
-              marginTop: 6,
             }}
           >
             <Text style={type.h2}>Dauerauftrag</Text>
@@ -450,21 +488,20 @@ export default function ProfileScreen() {
             />
           </View>
 
+          <View style={{ height: 12 }} />
           {/* Eigenkontrolle / Verknüpfung */}
           <View
             style={{
               flexDirection: 'row',
               alignItems: 'center',
-              gap: 8,
               borderWidth: 1,
               borderColor: colors.border,
               borderRadius: radius.md,
               padding: 10,
               backgroundColor: '#0d0d0d',
-              marginTop: 6,
             }}
           >
-            <Text style={{ fontSize: 22 }}>
+            <Text style={{ fontSize: 22, marginRight: 8 }}>
               {form.self_check ? '🔗' : '🟡'}
             </Text>
             <Text style={type.body}>
@@ -472,14 +509,19 @@ export default function ProfileScreen() {
             </Text>
           </View>
 
-          <View style={{ gap: 10, marginTop: 8 }}>
+          <View style={{ height: 12 }} />
+          <View>
             <Button title={saving ? 'Speichere…' : 'Profil speichern'} onPress={saveProfileText} disabled={saving} />
+            <View style={{ height: 8 }} />
             <Button title="Zurück" onPress={() => router.back()} />
           </View>
 
-          {message ? <Text style={{ ...type.body, color: colors.gold }}>{message}</Text> : null}
-          {error ? <Text style={{ ...type.body, color: colors.red }}>{error}</Text> : null}
+          {message ? <Text style={{ ...type.body, color: colors.gold, marginTop: 8 }}>{message}</Text> : null}
+          {error ? <Text style={{ ...type.body, color: colors.red, marginTop: 4 }}>{error}</Text> : null}
         </View>
+
+        {/* Spacer */}
+        <View style={{ height: 12 }} />
 
         {/* Admin-Bereich: nur für SuperUser/Admin */}
         {canSeeAdminLinks && (
@@ -490,33 +532,44 @@ export default function ProfileScreen() {
               backgroundColor: colors.cardBg,
               borderWidth: 1,
               borderColor: colors.border,
-              gap: 8,
             }}
           >
             <Text style={type.h2}>Admin-Bereich</Text>
-            <Text style={{ ...type.body, color: '#bfbfbf' }}>
+            <Text style={{ ...type.body, color: '#bfbfbf', marginTop: 4 }}>
               Schnellzugriff auf Verwaltungsseiten
             </Text>
-            <View style={{ gap: 8, marginTop: 4 }}>
+
+            <View style={{ height: 10 }} />
+            <View>
               <Button
                 title="Verknüpfungs-Anfragen prüfen"
                 onPress={() => router.push('/admin/claims')}
               />
+              <View style={{ height: 8 }} />
               <Button
                 title={isAdmin ? 'Benutzerverwaltung öffnen' : 'Benutzerverwaltung (Nur ansehen)'}
                 onPress={() => router.push('/admin/users')}
               />
+              {isAdmin && (
+                <>
+                  <View style={{ height: 8 }} />
+                  <Button
+                    title="Einstellungen (Vegas)"
+                    onPress={() => router.push('/admin/settings')}
+                  />
+                </>
+              )}
             </View>
           </View>
         )}
 
         {/* Footer – Zugriffsrechte je nach Rolle */}
+        <View style={{ height: 8 }} />
         <Text
           style={{
             ...type.caption,
             color: '#9aa0a6',
             textAlign: 'center',
-            marginTop: 8,
             marginBottom: 12,
           }}
         >

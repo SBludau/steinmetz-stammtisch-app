@@ -7,9 +7,6 @@ import { supabase } from '../../src/lib/supabase'
 import { colors, radius } from '../../src/theme/colors'
 import { type } from '../../src/theme/typography'
 
-// ——————————————————————————————————————————
-// Types
-// ——————————————————————————————————————————
 type Degree = 'none' | 'dr' | 'prof'
 type Profile = {
   auth_user_id: string
@@ -28,9 +25,6 @@ type Ranked = { auth_user_id: string; value: number }
 
 const Y = new Date().getFullYear()
 
-// ——————————————————————————————————————————
-// Helpers
-// ——————————————————————————————————————————
 function degLabel(d: Degree | null | undefined): string {
   if (d === 'dr') return 'Dr.'
   if (d === 'prof') return 'Prof.'
@@ -62,18 +56,29 @@ function Box({ children, style }: { children: React.ReactNode; style?: any }) {
   )
 }
 
+/** FIX: Header ohne leere <Text/> und ohne Inline-Kommentare/Whitespace-Strings */
 function TableHeader() {
-  // Hinweis: „Grad“ bewusst leer gelassen, aber Spalte bleibt erhalten
+  const labels = [
+    { label: null, flex: 0, width: 32 },  // Thumb
+    { label: null, flex: 0.8 },           // Grad (ohne Überschrift)
+    { label: 'Vorname', flex: 1.2 },
+    { label: 'Mittelname', flex: 1.2 },
+    { label: 'Nachname', flex: 1.4 },
+    { label: 'Aktiv', flex: 0.9 },
+    { label: 'Dauerauftrag', flex: 1.0 },
+    { label: 'Auszeichnungen', flex: 2.0 },
+  ] as const
+
   return (
-    <View style={{ flexDirection: 'row', paddingVertical: 6 }}>
-      <Text style={{ ...type.bodyMuted, width: 32 }} /> {/* Thumb */}
-      <Text style={{ ...type.bodyMuted, flex: 0.8 }} /> {/* Grad (ohne Überschrift) */}
-      <Text style={{ ...type.bodyMuted, flex: 1.2 }}>Vorname</Text>
-      <Text style={{ ...type.bodyMuted, flex: 1.2 }}>Mittelname</Text>
-      <Text style={{ ...type.bodyMuted, flex: 1.4 }}>Nachname</Text>
-      <Text style={{ ...type.bodyMuted, flex: 0.9 }}>Aktiv</Text>
-      <Text style={{ ...type.bodyMuted, flex: 1.0 }}>Dauerauftrag</Text>
-      <Text style={{ ...type.bodyMuted, flex: 2.0 }}>Auszeichnungen</Text>
+    <View style={{ flexDirection: 'row', paddingVertical: 6, alignItems: 'center' }}>
+      {/* Thumb-Spalte */}
+      <View style={{ width: labels[0].width || 0 }} />
+      {/* Restliche Spalten */}
+      {labels.slice(1).map((col, i) => (
+        <View key={i} style={{ flex: col.flex }}>
+          {col.label ? <Text style={type.bodyMuted}>{col.label}</Text> : null}
+        </View>
+      ))}
     </View>
   )
 }
@@ -96,8 +101,8 @@ function TableRow({
   p: Profile
   awards: { teilnahmen?: number; streak?: number; spender?: number }
   thumb?: string
-  activeIcon: string // 🟢 / 🔴
-  showMoney: boolean // 💶 bei true
+  activeIcon: string
+  showMoney: boolean
 }) {
   return (
     <View
@@ -121,7 +126,7 @@ function TableRow({
         ) : null}
       </View>
 
-      {/* Grad (ohne Überschrift) */}
+      {/* Grad */}
       <Text style={{ ...type.body, flex: 0.8 }}>{degLabel(p.degree)}</Text>
 
       <Text style={{ ...type.body, flex: 1.2 }}>{safeStr(p.first_name)}</Text>
@@ -139,12 +144,8 @@ function TableRow({
   )
 }
 
-// ——————————————————————————————————————————
-// Seite
-// ——————————————————————————————————————————
 export default function HallOfFameScreen() {
   const insets = useSafeAreaInsets()
-
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -152,23 +153,19 @@ export default function HallOfFameScreen() {
   const [events, setEvents] = useState<EventRow[]>([])
   const [participantsByEvent, setParticipantsByEvent] = useState<Record<number, ParticipantRow[]>>({})
   const [donors, setDonors] = useState<DonorRow[]>([])
-  const [fallbackAvatars, setFallbackAvatars] = useState<Record<string, string>>({}) // google-avatar Fallback
+  const [fallbackAvatars, setFallbackAvatars] = useState<Record<string, string>>({})
 
   const getPublicAvatarUrl = (path: string | null | undefined) => {
     if (!path) return undefined
     const { data } = supabase.storage.from('avatars').getPublicUrl(path)
     return data.publicUrl || undefined
   }
-
-  const thumbFor = (p: Profile) => {
-    return getPublicAvatarUrl(p.avatar_url) || fallbackAvatars[p.auth_user_id]
-  }
+  const thumbFor = (p: Profile) => getPublicAvatarUrl(p.avatar_url) || fallbackAvatars[p.auth_user_id]
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      // 0) Profiles: alle Mitglieder (inkl. Avatar & Status/Grad)
       const { data: profData, error: e0 } = await supabase
         .from('profiles')
         .select('auth_user_id,first_name,middle_name,last_name,degree,is_active,standing_order,avatar_url')
@@ -176,8 +173,6 @@ export default function HallOfFameScreen() {
       const profs = (profData ?? []) as Profile[]
       setProfiles(profs)
 
-      // — optionaler Fallback: Google-Avatare aus auth.* via RPC (falls vorhanden) —
-      // erwartet eine RPC 'public_get_google_avatars(p_user_ids uuid[]) returns table(auth_user_id uuid, avatar_url text)'
       try {
         const userIds = profs.map(p => p.auth_user_id)
         if (userIds.length) {
@@ -190,11 +185,8 @@ export default function HallOfFameScreen() {
             setFallbackAvatars(map)
           }
         }
-      } catch {
-        // RPC existiert (noch) nicht -> ignorieren
-      }
+      } catch {}
 
-      // 1) Events dieses Jahr
       const start = `${Y}-01-01`
       const end = `${Y}-12-31`
       const { data: eventsData, error: e1 } = await supabase
@@ -207,7 +199,6 @@ export default function HallOfFameScreen() {
       const evs = (eventsData ?? []) as EventRow[]
       setEvents(evs)
 
-      // 2) Teilnehmer je Event
       const byEvent: Record<number, ParticipantRow[]> = {}
       for (const ev of evs) {
         const { data, error } = await supabase
@@ -219,7 +210,6 @@ export default function HallOfFameScreen() {
       }
       setParticipantsByEvent(byEvent)
 
-      // 3) Spender (dieses Jahr, settled)
       const { data: donorData, error: e3 } = await supabase
         .from('birthday_rounds')
         .select('auth_user_id,settled_at')
@@ -235,13 +225,8 @@ export default function HallOfFameScreen() {
     }
   }, [])
 
-  useEffect(() => {
-    load()
-  }, [load])
+  useEffect(() => { load() }, [load])
 
-  // ——— Rankings berechnen ———
-
-  // 1) Teilnahmen Top 5
   const ranksTeilnahmen = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const ev of events) {
@@ -254,13 +239,11 @@ export default function HallOfFameScreen() {
       .map(([auth_user_id, value]) => ({ auth_user_id, value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 5)
-
     const map = new Map<string, number>()
     ranked.forEach((r, idx) => map.set(r.auth_user_id, idx + 1))
     return map
   }, [events, participantsByEvent])
 
-  // 2) Streaks Top 3
   const ranksStreaks = useMemo(() => {
     const users = new Set<string>()
     for (const ev of events) {
@@ -268,8 +251,7 @@ export default function HallOfFameScreen() {
     }
     const streaks: Ranked[] = []
     users.forEach(uid => {
-      let best = 0
-      let cur = 0
+      let best = 0, cur = 0
       for (const ev of events) {
         const list = participantsByEvent[ev.id] || []
         const going = list.some(p => p.auth_user_id === uid && p.status === 'going')
@@ -283,7 +265,6 @@ export default function HallOfFameScreen() {
     return map
   }, [events, participantsByEvent])
 
-  // 3) Spender Top 5
   const ranksSpender = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const d of donors) {
@@ -294,13 +275,11 @@ export default function HallOfFameScreen() {
       .map(([auth_user_id, value]) => ({ auth_user_id, value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 5)
-
     const map = new Map<string, number>()
     ranked.forEach((r, idx) => map.set(r.auth_user_id, idx + 1))
     return map
   }, [donors])
 
-  // ——— sortieren & gruppieren ———
   const sortedProfiles = useMemo(() => {
     return [...profiles].sort((a, b) =>
       safeLastName(a).localeCompare(safeLastName(b), 'de', { sensitivity: 'base' }) ||
@@ -308,14 +287,8 @@ export default function HallOfFameScreen() {
     )
   }, [profiles])
 
-  const activeProfiles = useMemo(
-    () => sortedProfiles.filter(p => !!p.is_active),
-    [sortedProfiles]
-  )
-  const passiveProfiles = useMemo(
-    () => sortedProfiles.filter(p => !p.is_active),
-    [sortedProfiles]
-  )
+  const activeProfiles = useMemo(() => sortedProfiles.filter(p => !!p.is_active), [sortedProfiles])
+  const passiveProfiles = useMemo(() => sortedProfiles.filter(p => !p.is_active), [sortedProfiles])
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -327,7 +300,6 @@ export default function HallOfFameScreen() {
         }}
       >
         <Text style={type.h1}>Hall of Fame</Text>
-        {/* Hinweiszeile bewusst entfernt */}
 
         {loading ? (
           <View style={{ marginTop: 24 }}>
@@ -340,7 +312,6 @@ export default function HallOfFameScreen() {
           </View>
         ) : (
           <>
-            {/* Aktive */}
             <Box style={{ marginTop: 16 }}>
               <Text style={{ ...type.h2, marginBottom: 8 }}>Aktive Steinmetze</Text>
               <TableHeader />
@@ -364,7 +335,6 @@ export default function HallOfFameScreen() {
               )}
             </Box>
 
-            {/* Passive */}
             <Box style={{ marginTop: 16 }}>
               <Text style={{ ...type.h2, marginBottom: 8 }}>Passive Steinmetze</Text>
               <TableHeader />

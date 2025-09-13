@@ -1,7 +1,6 @@
 // app/(tabs)/stats.tsx
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { View, Text, Image, ScrollView, ActivityIndicator } from 'react-native'
-import { Picker } from '@react-native-picker/picker'
+import { View, Text, Image, ScrollView, ActivityIndicator, Pressable } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../src/components/BottomNav'
 import { supabase } from '../../src/lib/supabase'
@@ -98,6 +97,43 @@ function PersonRow({ rank, name, avatar, detail }: { rank: number; name: string;
         <Text style={{ ...type.body, fontWeight: '600' }}>{name}</Text>
       </View>
       <Text style={type.bodyMuted}>{detail}</Text>
+    </View>
+  )
+}
+
+// Native-sichere Jahresauswahl (statt Picker)
+function YearChips({
+  years,
+  value,
+  onChange,
+}: {
+  years: number[]
+  value: number
+  onChange: (y: number) => void
+}) {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+      {years.map((y) => {
+        const active = y === value
+        return (
+          <Pressable
+            key={y}
+            onPress={() => onChange(y)}
+            style={{
+              paddingVertical: 6,
+              paddingHorizontal: 10,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: active ? colors.gold : colors.border,
+              backgroundColor: active ? '#2a2a2a' : '#0d0d0d',
+              marginRight: 8,
+              marginTop: 8,
+            }}
+          >
+            <Text style={type.body}>{`Jahr ${y}`}</Text>
+          </Pressable>
+        )
+      })}
     </View>
   )
 }
@@ -299,27 +335,19 @@ export default function StatsScreen() {
       >
         <Text style={type.h1}>Statistiken</Text>
 
-        {/* Jahr-Auswahl */}
+        {/* Jahr-Auswahl (Chips) */}
         <View
           style={{
             marginTop: 8,
             borderWidth: 1,
             borderColor: colors.border,
             borderRadius: radius.md,
-            overflow: 'hidden',
+            padding: 8,
             backgroundColor: '#0d0d0d',
-            width: 180,
+            alignSelf: 'flex-start',
           }}
         >
-          <Picker
-            selectedValue={String(selectedYear)}
-            onValueChange={(v) => setSelectedYear(parseInt(String(v), 10))}
-            dropdownIconColor={colors.text}
-          >
-            {years.map(y => (
-              <Picker.Item key={y} label={`Jahr ${y}`} value={String(y)} />
-            ))}
-          </Picker>
+          <YearChips years={years} value={selectedYear} onChange={setSelectedYear} />
         </View>
 
         {loading ? (
