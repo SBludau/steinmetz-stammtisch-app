@@ -57,11 +57,13 @@ export default function ProfileScreen() {
   // Bildauswahl / Upload
   const [avatarPreviewUri, setAvatarPreviewUri] = useState<string | null>(null)
 
-  // Public-URL aus Pfad bauen (Bucket ist public)
+  // Public-URL aus Pfad bauen (Bucket ist public) + Cache-Buster
   const publicAvatarUrl = useMemo(() => {
     if (!form.avatar_url) return null
     const { data } = supabase.storage.from('avatars').getPublicUrl(form.avatar_url)
-    return data.publicUrl ?? null
+    const base = data.publicUrl ?? null
+    // Cache-Buster: sorgt dafür, dass neue Avatare sofort überall erscheinen
+    return base ? `${base}?v=${Date.now()}` : null
   }, [form.avatar_url])
 
   // Rollen-Helfer
@@ -193,7 +195,7 @@ export default function ProfileScreen() {
     setAvatarPreviewUri(res.assets[0].uri)
   }
 
-  // Upload + in profiles.avatar_url speichern
+  // Upload + in profiles.avatar_url speichern (RN-stabil via arrayBuffer) + sofortige Anzeige
   async function uploadAvatarAndSave() {
     setError(''); setMessage('')
     if (!avatarPreviewUri) { setError('Kein Bild ausgewählt.'); return }
@@ -204,24 +206,41 @@ export default function ProfileScreen() {
 
     try {
       setSaving(true); setMessage('Lade Bild hoch …')
+
+      // Datei in ArrayBuffer lesen (robuster als blob() in RN)
       const resp = await fetch(avatarPreviewUri)
-      const blob = await resp.blob()
-      const ext = (blob.type && blob.type.split('/')[1]) || 'jpg'
+      const arrayBuffer = await resp.arrayBuffer()
+
+      // Content-Type aus Dateiendung ableiten, Default: jpeg
+      const extFromUri = (avatarPreviewUri.split('.').pop() || '').toLowerCase()
+      const ext = ['png','jpg','jpeg','webp','heic','heif'].includes(extFromUri) ? extFromUri : 'jpg'
+      const ct = ext === 'png' ? 'image/png'
+        : ext === 'webp' ? 'image/webp'
+        : (ext === 'heic' || ext === 'heif') ? 'image/heic'
+        : 'image/jpeg'
+
       const path = `${uid}/${Date.now()}.${ext}`
 
-      const { error: upErr } = await supabase.storage.from('avatars').upload(path, blob, {
-        contentType: blob.type || 'image/jpeg',
-        upsert: false,
-      })
+      const { error: upErr } = await supabase
+        .storage
+        .from('avatars')
+        .upload(path, arrayBuffer, { contentType: ct, upsert: false })
+
       if (upErr) { setSaving(false); setError(upErr.message); return }
 
+      // Pfad im Profil speichern
       const { error: profErr } = await supabase
         .from('profiles')
         .upsert({ auth_user_id: uid, avatar_url: path }, { onConflict: 'auth_user_id' })
       if (profErr) { setSaving(false); setError(profErr.message); return }
 
+      // Form aktualisieren → publicAvatarUrl wird mit Cache-Buster neu berechnet
       setForm(f => ({ ...f, avatar_url: path }))
-      setAvatarPreviewUri(null)
+
+      // Sofortige Anzeige noch in dieser Ansicht:
+      const { data } = supabase.storage.from('avatars').getPublicUrl(path)
+      setAvatarPreviewUri(`${data.publicUrl}?v=${Date.now()}`)
+
       setSaving(false); setMessage('Avatar gespeichert.')
     } catch (e: any) {
       setSaving(false); setError(e?.message ?? String(e))

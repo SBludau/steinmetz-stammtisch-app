@@ -293,7 +293,7 @@ export default function StammtischEditScreen() {
     }
   }
 
-  // Löschen
+  // Löschen: immer RPC (SECURITY DEFINER) verwenden – zuverlässiger für Admin/SU
   function confirmDelete() {
     if (!Number.isFinite(idNum)) { Alert.alert('Fehler', 'Ungültige ID.'); return }
     Alert.alert(
@@ -308,12 +308,16 @@ export default function StammtischEditScreen() {
             if (deleting) return
             try {
               setDeleting(true)
-              const { error } = await supabase.from('stammtisch').delete().eq('id', idNum)
-              if (error) throw error
-              await supabase.channel('client-refresh').send({ type: 'broadcast', event: 'stammtisch-saved', payload: { id: idNum } })
+              const { error: rpcErr } = await supabase.rpc('admin_delete_stammtisch', { p_id: idNum })
+              if (rpcErr) throw rpcErr
+
+              await supabase
+                .channel('client-refresh')
+                .send({ type: 'broadcast', event: 'stammtisch-saved', payload: { id: idNum } })
+
               router.back()
             } catch (e: any) {
-              Alert.alert('Fehler', e?.message ?? 'Löschen fehlgeschlagen.')
+              Alert.alert('Fehler', e?.message ?? 'Löschen fehlgeschlagen (RPC nicht vorhanden oder RLS?).')
             } finally {
               setDeleting(false)
             }
@@ -980,9 +984,9 @@ export default function StammtischEditScreen() {
               </View>
             )}
 
-            {/* unten: Löschen (nur Admin) */}
+            {/* unten: Löschen (Admin/SU) */}
             <View style={{ gap: 10, marginTop: 16, marginBottom: 6 }}>
-              {myRole === 'admin' ? (
+              {isAdmin ? (
                 <Button color="#B00020" title={deleting ? 'Lösche…' : 'Eintrag löschen'} onPress={confirmDelete} />
               ) : null}
             </View>

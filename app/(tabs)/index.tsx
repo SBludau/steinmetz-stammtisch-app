@@ -2,7 +2,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { View, Text, Image, Pressable, ScrollView } from 'react-native'
 import { useRouter } from 'expo-router'
-import { useFocusEffect } from '@react-navigation/native'
+import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../../src/lib/supabase'
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../src/components/BottomNav'
@@ -75,6 +75,7 @@ const countFirstsSince = (startIso: string, todayIso: string) => {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets()
   const router = useRouter()
+  const navigation = useNavigation()
 
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(false)
@@ -240,13 +241,14 @@ export default function HomeScreen() {
       avatar_url: data?.avatar_url ?? null,
     }
     setProfile(prof)
+    const bust = `?v=${Date.now()}`
     const uploaded = getPublicAvatarUrl(prof.avatar_url)
-    if (uploaded) { setAvatarPublicUrl(uploaded); return }
+    if (uploaded) { setAvatarPublicUrl(uploaded + bust); return }
     // Fallback: Google-Avatar
     try {
       const { data: fb } = await supabase.rpc('public_get_google_avatars', { p_user_ids: [uid] })
       const url = Array.isArray(fb) && fb[0]?.avatar_url ? String(fb[0].avatar_url) : null
-      setAvatarPublicUrl(url)
+      setAvatarPublicUrl(url ? url + bust : null)
     } catch { setAvatarPublicUrl(null) }
   }, [])
 
@@ -293,9 +295,21 @@ export default function HomeScreen() {
       loadData()
       loadProfiles()
       loadProfileCard()
-      loadVegasSettings() // (NEU)
+      loadVegasSettings()
     }, [sessionChecked, loadData, loadProfiles, loadProfileCard, loadVegasSettings])
   )
+
+  // (NEU) Auch beim erneuten Antippen des Home-Tabs (BottomNav) alles neu laden
+  useEffect(() => {
+    const unsub = navigation.addListener('tabPress', () => {
+      if (!sessionChecked) return
+      loadData()
+      loadProfiles()
+      loadProfileCard()
+      loadVegasSettings()
+    })
+    return unsub
+  }, [navigation, sessionChecked, loadData, loadProfiles, loadProfileCard, loadVegasSettings])
 
   // ---- UI ----
 
