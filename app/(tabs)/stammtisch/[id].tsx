@@ -47,6 +47,28 @@ const addMonths = (yyyyMmDd: string, diff: number) => {
   d.setMonth(d.getMonth() + diff)
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`
 }
+
+const normalizeProfileId = (value: unknown): number | null => {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+const roundOwnerKey = (
+  authUserId: string | null | undefined,
+  profileId: unknown,
+  dueMonth: string | null | undefined
+) => {
+  if (!dueMonth) return ''
+  const normalizedProfile = normalizeProfileId(profileId)
+  const month = firstOfMonth(dueMonth)
+  if (authUserId) return `auth:${authUserId}:${month}`
+  if (normalizedProfile != null) return `profile:${normalizedProfile}:${month}`
+  return ''
+}
 const germanMonthYear = (iso: string) => {
   if (!iso) return '–'
   const d = new Date(iso + 'T00:00:00')
@@ -182,7 +204,14 @@ export default function StammtischEditScreen() {
         .select('id, auth_user_id, first_name, middle_name, last_name, degree, birthday, avatar_url, is_active')
         .order('last_name', { ascending: true })
       if (pErr) throw pErr
-      const list = (profs ?? []) as Profile[]
+      const rawList = (profs ?? []) as any[]
+      const list = rawList
+        .map((p: any) => {
+          const normalizedId = normalizeProfileId(p.id)
+          if (normalizedId == null) return null
+          return { ...(p as Profile), id: normalizedId }
+        })
+        .filter(Boolean) as Profile[]
       setProfiles(list)
 
       const { data: partsLinked, error: aErr } = await supabase
@@ -202,7 +231,10 @@ export default function StammtischEditScreen() {
       if (uErr) throw uErr
       const unlinkedMap: Record<number, AttStatus> = {}
       for (const row of partsUnlinked ?? []) {
-        unlinkedMap[(row as any).profile_id as number] = ((row as any).status as AttStatus) || 'declined'
+        const pid = normalizeProfileId((row as any).profile_id)
+        if (pid != null) {
+          unlinkedMap[pid] = ((row as any).status as AttStatus) || 'declined'
+        }
       }
 
       setAttLinked(linkedMap)
@@ -214,22 +246,83 @@ export default function StammtischEditScreen() {
     }
   }, [idNum])
 
+  const ensureProfileLinks = useCallback(
+    async (rows: { id: number; auth_user_id: string | null; profile_id: number | null }[]) => {
+      if (!rows || rows.length === 0) return new Map<number, number>()
+      if (profiles.length === 0) return new Map<number, number>()
+      const updates: { id: number; profile_id: number }[] = []
+      for (const row of rows) {
+        if (row.profile_id != null || !row.auth_user_id) continue
+        const prof = profiles.find(p => p.auth_user_id === row.auth_user_id)
+        const profileId = prof ? normalizeProfileId(prof.id) : null
+        if (profileId != null) {
+          updates.push({ id: row.id, profile_id: profileId })
+        }
+      }
+      if (updates.length === 0) return new Map<number, number>()
+      const { error } = await supabase
+        .from('birthday_rounds')
+        .upsert(
+          updates.map((u) => ({ id: u.id, profile_id: u.profile_id })),
+          { onConflict: 'id' }
+        )
+      if (error) throw error
+      const map = new Map<number, number>()
+      updates.forEach((u) => map.set(u.id, u.profile_id))
+      return map
+    },
+    [profiles]
+  )
+
   // Offene Geburtstags-Runden
   const loadBirthdayRounds = useCallback(async () => {
     setLoadingRounds(true)
     setRoundsErr(null)
     try {
-      if (!Number.isFinite(idNum) || !date) { setDueRounds([]); return }
+      if (!Number.isFinite(idNum) || !date) {
+        setDueRounds([])
+        return
+      }
 
       const currentFirst = firstOfMonth(date)
+      if (!currentFirst) {
+        setDueRounds([])
+        return
+      }
+
       const monthsToBackfill = 12
       const months: string[] = []
       for (let i = monthsToBackfill - 1; i >= 0; i--) {
         months.push(addMonths(currentFirst, -i))
       }
 
+      const fetchRounds = async () => {
+        const { data, error } = await supabase
+          .from('birthday_rounds')
+          .select('id, auth_user_id, profile_id, due_month, settled_stammtisch_id, settled_at, approved_at, first_due_stammtisch_id')
+          .lte('due_month', currentFirst)
+          .order('due_month', { ascending: true })
+          .order('settled_at', { ascending: true, nullsFirst: true })
+        if (error) throw error
+        return (data ?? []) as BR[]
+      }
+
+      let rounds = await fetchRounds()
+      const ensuredLinks = await ensureProfileLinks(rounds)
+      if (ensuredLinks.size > 0) {
+        rounds = rounds.map(r =>
+          ensuredLinks.has(r.id) ? { ...r, profile_id: ensuredLinks.get(r.id)! } : r
+        )
+      }
+
       const activeWithBirthday = profiles.filter(p => p.is_active !== false && !!p.birthday)
       if (activeWithBirthday.length > 0) {
+        const existingKeys = new Set<string>()
+        for (const r of rounds) {
+          const key = roundOwnerKey(r.auth_user_id, r.profile_id, r.due_month)
+          if (key) existingKeys.add(key)
+        }
+
         const linkedPayloads: Record<string, any>[] = []
         const unlinkedPayloads: Record<string, any>[] = []
 
@@ -239,104 +332,159 @@ export default function StammtischEditScreen() {
             const bday = prof.birthday as string | null | undefined
             if (!bday || bday.slice(5, 7) !== monthKey) continue
 
-            const base = {
+            const profileId = normalizeProfileId(prof.id)
+            const ownerKey = roundOwnerKey(prof.auth_user_id ?? null, profileId, monthFirst)
+            if (ownerKey && existingKeys.has(ownerKey)) continue
+
+            const base: Record<string, any> = {
               due_month: monthFirst,
               first_due_stammtisch_id: idNum,
-              profile_id: prof.id,
+              profile_id: profileId,
             }
 
             if (prof.auth_user_id) {
               linkedPayloads.push({ ...base, auth_user_id: prof.auth_user_id })
-            } else {
+            } else if (profileId != null) {
               unlinkedPayloads.push({ ...base, auth_user_id: null })
             }
           }
         }
 
+        let inserted = false
         if (linkedPayloads.length > 0) {
           const { error: linkedErr } = await supabase
             .from('birthday_rounds')
-            .upsert(linkedPayloads, { onConflict: 'auth_user_id,due_month', ignoreDuplicates: true })
+            .upsert(linkedPayloads, { onConflict: 'auth_user_id,due_month' })
           if (linkedErr) throw linkedErr
+          inserted = true
         }
 
         if (unlinkedPayloads.length > 0) {
           const { error: unlinkedErr } = await supabase
             .from('birthday_rounds')
-            .upsert(unlinkedPayloads, { onConflict: 'profile_id,due_month', ignoreDuplicates: true })
+            .upsert(unlinkedPayloads, { onConflict: 'profile_id,due_month' })
           if (unlinkedErr) throw unlinkedErr
+          inserted = true
+        }
+
+        if (inserted) {
+          rounds = await fetchRounds()
+          const ensuredAfter = await ensureProfileLinks(rounds)
+          if (ensuredAfter.size > 0) {
+            rounds = rounds.map(r =>
+              ensuredAfter.has(r.id) ? { ...r, profile_id: ensuredAfter.get(r.id)! } : r
+            )
+          }
         }
       }
 
-      const { data, error } = await supabase
-        .from('birthday_rounds')
-        .select('id, auth_user_id, profile_id, due_month, settled_stammtisch_id, settled_at, approved_at, first_due_stammtisch_id')
-        .lte('due_month', currentFirst)
-        .is('approved_at', null)
-        .order('due_month', { ascending: true })
-        .order('settled_at', { ascending: true, nullsFirst: true })
-      if (error) throw error
+      const deduped: BR[] = []
+      const seen = new Map<string, number>()
+      for (const r of rounds) {
+        const key = roundOwnerKey(r.auth_user_id, r.profile_id, r.due_month)
+        if (!key) continue
+        const normalizedProfileId = normalizeProfileId(r.profile_id)
+        const existingIndex = seen.get(key)
+        if (existingIndex != null) {
+          const existing = deduped[existingIndex]
+          const existingApproved = !!existing.approved_at
+          const currentApproved = !!r.approved_at
+          const hasBetterProfile = existing.profile_id == null && normalizedProfileId != null
+          const shouldReplace = (!currentApproved && existingApproved) || hasBetterProfile
+          if (shouldReplace) {
+            deduped[existingIndex] = { ...r, profile_id: normalizedProfileId }
+          }
+          continue
+        }
+        deduped.push({
+          ...r,
+          profile_id: normalizedProfileId,
+        })
+        seen.set(key, deduped.length - 1)
+      }
 
-      const validRounds = (data ?? []).filter((r: any) => r.auth_user_id || r.profile_id)
-      setDueRounds(validRounds as BR[])
+      const open = deduped.filter(r => !r.approved_at)
+      setDueRounds(open)
     } catch (e: any) {
       setRoundsErr(e?.message ?? 'Fehler beim Laden der Geburtstags-Runden.')
     } finally {
       setLoadingRounds(false)
     }
-  }, [idNum, date, profiles])
+  }, [idNum, date, profiles, ensureProfileLinks])
 
   // Gegebene Runden dieses Stammtischs (inkl. profile_id & due_month)
   const loadDonors = useCallback(async () => {
     setLoadingDonors(true)
     try {
-      if (!Number.isFinite(idNum)) { setDonors([]); return }
+      if (!Number.isFinite(idNum)) {
+        setDonors([])
+        return
+      }
       const { data, error } = await supabase
         .from('birthday_rounds')
         .select('id, auth_user_id, profile_id, due_month, settled_stammtisch_id, settled_at, approved_at')
         .eq('settled_stammtisch_id', idNum)
         .order('settled_at', { ascending: true })
       if (error) throw error
-      setDonors(((data ?? []) as any[]).map(d => ({
+
+      let mapped = ((data ?? []) as any[]).map(d => ({
         id: d.id as number,
         auth_user_id: (d.auth_user_id ?? null) as string | null,
-        profile_id: (d.profile_id ?? null) as number | null,
+        profile_id: normalizeProfileId(d.profile_id),
         due_month: (d.due_month ?? null) as string | null,
         settled_at: d.settled_at as string | null,
         approved_at: d.approved_at as string | null,
-      })))
+      })) as Donor[]
+
+      const ensured = await ensureProfileLinks(mapped)
+      if (ensured.size > 0) {
+        mapped = mapped.map(r => (ensured.has(r.id) ? { ...r, profile_id: ensured.get(r.id)! } : r))
+      }
+
+      setDonors(mapped)
     } catch {
       setDonors([])
     } finally {
       setLoadingDonors(false)
     }
-  }, [idNum])
+  }, [idNum, ensureProfileLinks])
 
   // Moderation
   const loadModeration = useCallback(async () => {
     setLoadingModeration(true)
     try {
-      if (!Number.isFinite(idNum)) { setModeration([]); return }
+      if (!Number.isFinite(idNum)) {
+        setModeration([])
+        return
+      }
       const { data, error } = await supabase
         .from('birthday_rounds')
         .select('id, auth_user_id, profile_id, due_month, settled_at, approved_at')
         .eq('settled_stammtisch_id', idNum)
         .order('settled_at', { ascending: false })
       if (error) throw error
-      setModeration(((data ?? []) as any[]).map(d => ({
+
+      let mapped = ((data ?? []) as any[]).map(d => ({
         id: d.id as number,
         auth_user_id: (d.auth_user_id ?? null) as string | null,
-        profile_id: (d.profile_id ?? null) as number | null,
+        profile_id: normalizeProfileId(d.profile_id),
         due_month: (d.due_month ?? null) as string | null,
         settled_at: d.settled_at as string | null,
         approved_at: d.approved_at as string | null,
-      })))
+      })) as Donor[]
+
+      const ensured = await ensureProfileLinks(mapped)
+      if (ensured.size > 0) {
+        mapped = mapped.map(r => (ensured.has(r.id) ? { ...r, profile_id: ensured.get(r.id)! } : r))
+      }
+
+      setModeration(mapped)
     } catch {
       setModeration([])
     } finally {
       setLoadingModeration(false)
     }
-  }, [idNum])
+  }, [idNum, ensureProfileLinks])
 
   useEffect(() => { load() }, [load])
   useEffect(() => { loadParticipants() }, [loadParticipants])
@@ -567,6 +715,11 @@ export default function StammtischEditScreen() {
       Alert.alert('Nicht erlaubt', 'Nur Admin/Superuser können unverknüpfte Runden verbuchen.')
       return
     }
+    const profileNumeric = normalizeProfileId(profileId)
+    if (profileNumeric == null) {
+      Alert.alert('Fehler', 'Ungültiges Profil für unverknüpfte Runde.')
+      return
+    }
     try {
       const dueCandidate = options?.dueMonth ?? firstOfMonth(date)
       const dueFirst = dueCandidate && dueCandidate.length > 0 ? dueCandidate : firstOfMonth(date)
@@ -581,7 +734,7 @@ export default function StammtischEditScreen() {
           .update({
             settled_stammtisch_id: idNum,
             settled_at: settledAt,
-            profile_id: profileId,
+            profile_id: profileNumeric,
           })
           .eq('id', options.roundId)
         if (error) throw error
@@ -590,7 +743,7 @@ export default function StammtischEditScreen() {
           .from('birthday_rounds')
           .upsert([
             {
-              profile_id: profileId,
+              profile_id: profileNumeric,
               auth_user_id: null,
               due_month: dueFirst,
               first_due_stammtisch_id: idNum,
@@ -604,7 +757,7 @@ export default function StammtischEditScreen() {
       await loadDonors()
       await loadBirthdayRounds()
       if (isAdmin) await loadModeration()
-      Alert.alert('Erfasst', 'Geburtstagsrunde wurde verbucht (unverknüpft).')
+      Alert.alert('Erfasst', 'Runde wurde verbucht (unverknüpft).')
     } catch (e: any) {
       Alert.alert('Fehler', e?.message ?? 'Konnte Runde nicht verbuchen.')
     }
