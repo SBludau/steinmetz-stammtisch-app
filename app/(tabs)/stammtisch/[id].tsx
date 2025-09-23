@@ -30,6 +30,7 @@ type BR = {
   profile_id: number | null
   due_month: string
   settled_stammtisch_id: number | null
+  settled_at: string | null
   approved_at?: string | null
 }
 
@@ -65,6 +66,8 @@ const ageOnDate = (birthdayIso: string, refIso: string) => {
 const degPrefix = (d?: Degree) => (d === 'dr' ? 'Dr. ' : d === 'prof' ? 'Prof. ' : '')
 
 const AVATAR_BASE_URL = 'https://bcbqnkycjroiskwqcftc.supabase.co/storage/v1/object/public/avatars'
+const CONFIRMED_COLOR = '#4CAF50'
+const PENDING_COLOR = '#9E9E9E'
 
 export default function StammtischEditScreen() {
   const insets = useSafeAreaInsets()
@@ -228,10 +231,11 @@ export default function StammtischEditScreen() {
 
       const { data, error } = await supabase
         .from('birthday_rounds')
-        .select('id, auth_user_id, profile_id, due_month, settled_stammtisch_id, approved_at')
+        .select('id, auth_user_id, profile_id, due_month, settled_stammtisch_id, settled_at, approved_at')
         .lte('due_month', currentFirst)
-        .is('settled_stammtisch_id', null)
+        .is('approved_at', null)
         .order('due_month', { ascending: true })
+        .order('settled_at', { ascending: true, nullsFirst: true })
       if (error) throw error
 
       setDueRounds((data ?? []) as BR[])
@@ -399,7 +403,7 @@ export default function StammtischEditScreen() {
   const openCurrentMap = useMemo(() => {
     const map = new Map<string, BR>()
     for (const r of dueRounds) {
-      if (r.auth_user_id && r.due_month.slice(0,7) === currentMonthYYYYMM) {
+      if (r.auth_user_id && !r.settled_stammtisch_id && r.due_month.slice(0,7) === currentMonthYYYYMM) {
         map.set(r.auth_user_id, r)
       }
     }
@@ -467,21 +471,26 @@ export default function StammtischEditScreen() {
       return
     }
     try {
+      const prof = profiles.find(p => p.auth_user_id === userId)
+      const settledAt = new Date().toISOString()
       if (roundId) {
+        const update: Record<string, any> = {
+          settled_stammtisch_id: idNum,
+          settled_at: settledAt,
+        }
+        if (prof?.id) update.profile_id = prof.id
         const { error } = await supabase
           .from('birthday_rounds')
-          .update({ settled_stammtisch_id: idNum, settled_at: new Date().toISOString() })
+          .update(update)
           .eq('id', roundId)
         if (error) throw error
       } else {
         const dueFirst = firstOfMonth(date)
-        // profile_id befüllen (stabiler Name später)
-        const prof = profiles.find(p => p.auth_user_id === userId)
         const payload: any = {
           auth_user_id: userId,
           due_month: dueFirst,
           settled_stammtisch_id: idNum,
-          settled_at: new Date().toISOString(),
+          settled_at: settledAt,
         }
         if (prof?.id) payload.profile_id = prof.id
         const { error } = await supabase.from('birthday_rounds').insert([payload])
@@ -504,12 +513,42 @@ export default function StammtischEditScreen() {
     }
     try {
       const dueFirst = firstOfMonth(date)
+      const prof = profiles.find(p => p.id === profileId) || null
       const { error } = await supabase.rpc('admin_give_unlinked_birthday_round', {
         p_profile_id: profileId,
         p_stammtisch_id: idNum,
         p_due_month: dueFirst,
       })
       if (error) throw error
+
+      if (prof?.auth_user_id) {
+        const { error: linkErr } = await supabase
+          .from('birthday_rounds')
+          .update({ profile_id: profileId })
+          .eq('auth_user_id', prof.auth_user_id)
+          .eq('due_month', dueFirst)
+          .eq('settled_stammtisch_id', idNum)
+        if (linkErr) throw linkErr
+      } else {
+        const { data: recent, error: recentErr } = await supabase
+          .from('birthday_rounds')
+          .select('id')
+          .eq('settled_stammtisch_id', idNum)
+          .eq('due_month', dueFirst)
+          .is('auth_user_id', null)
+          .is('profile_id', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (recentErr) throw recentErr
+        if (recent?.id) {
+          const { error: attachErr } = await supabase
+            .from('birthday_rounds')
+            .update({ profile_id: profileId })
+            .eq('id', recent.id)
+          if (attachErr) throw attachErr
+        }
+      }
 
       await loadDonors()
       await loadBirthdayRounds()
@@ -601,6 +640,40 @@ export default function StammtischEditScreen() {
     if (authUserId && givenLinkedByMonth.get(authUserId)?.has(monthYYYYMM)) return true
     if (profileId != null && givenUnlinkedByMonth.get(profileId)?.has(monthYYYYMM)) return true
     return false
+  }
+
+  const renderRoundStatus = ({
+    hasGiven,
+    isPending,
+    canPress,
+    showButton,
+    onPress,
+  }: {
+    hasGiven: boolean
+    isPending: boolean
+    canPress: boolean
+    showButton: boolean
+    onPress: () => void
+  }) => {
+    if (hasGiven) {
+      if (isPending) {
+        return (
+          <Text style={{ ...type.caption, color: PENDING_COLOR }}>⏳ Wartet auf Bestätigung</Text>
+        )
+      }
+      return (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={{ color: CONFIRMED_COLOR, fontSize: 16 }}>✓</Text>
+          <Text style={{ ...type.caption, color: CONFIRMED_COLOR, fontWeight: '600' }}>Bestätigt</Text>
+        </View>
+      )
+    }
+    if (!showButton) return null
+    return (
+      <Pressable disabled={!canPress} onPress={onPress}>
+        <Text style={{ color: canPress ? colors.gold : '#999' }}>Gegeben</Text>
+      </Pressable>
+    )
   }
 
   return (
@@ -697,6 +770,14 @@ export default function StammtischEditScreen() {
                             ? givenCurrentOrOverdue(p.auth_user_id!, open?.id)
                             : givenForUnlinkedProfile(p.id)
 
+                        const statusNode = renderRoundStatus({
+                          hasGiven,
+                          isPending,
+                          canPress: canClick,
+                          showButton: !!p.auth_user_id || isAdmin,
+                          onPress,
+                        })
+
                         return (
                           <View
                             key={p.auth_user_id ?? `unlinked-${p.id}`}
@@ -731,14 +812,8 @@ export default function StammtischEditScreen() {
                               </View>
                             </View>
 
-                            {/* rechts: Button oder Haken */}
-                            {hasGiven ? (
-                              <Text style={{ color: isPending ? '#999' : colors.gold }}>✓ Gegeben</Text>
-                            ) : (p.auth_user_id || isAdmin) ? (
-                              <Pressable disabled={!canClick} onPress={onPress}>
-                                <Text style={{ color: canClick ? colors.gold : '#999' }}>Gegeben</Text>
-                              </Pressable>
-                            ) : null}
+                            {/* rechts: Status/Action */}
+                            {statusNode}
                           </View>
                         )
                       })
@@ -770,6 +845,14 @@ export default function StammtischEditScreen() {
                           r.auth_user_id
                             ? givenCurrentOrOverdue(r.auth_user_id, r.id)
                             : (r.profile_id != null ? givenForUnlinkedProfile(r.profile_id) : Alert.alert('Hinweis', 'Unverknüpft: bitte über Teilnehmerliste verbuchen.'))
+
+                        const statusNode = renderRoundStatus({
+                          hasGiven,
+                          isPending,
+                          canPress: canClick,
+                          showButton: !!r.auth_user_id || isAdmin,
+                          onPress,
+                        })
 
                         return (
                           <View
@@ -803,13 +886,7 @@ export default function StammtischEditScreen() {
                               </View>
                             </View>
 
-                            {hasGiven ? (
-                              <Text style={{ color: isPending ? '#999' : colors.gold }}>✓ Gegeben</Text>
-                            ) : (
-                              <Pressable disabled={!canClick} onPress={onPress}>
-                                <Text style={{ color: canClick ? colors.gold : '#999' }}>Gegeben</Text>
-                              </Pressable>
-                            )}
+                            {statusNode}
                           </View>
                         )
                       })
@@ -1083,6 +1160,7 @@ export default function StammtischEditScreen() {
                                     const { error } = await supabase.rpc('admin_approve_round', { p_id: r.id })
                                     if (error) throw error
                                     await loadDonors()
+                                    await loadBirthdayRounds()
                                     await loadModeration()
                                     setStatus('Runde bestätigt.')
                                   } catch (e: any) {
@@ -1108,6 +1186,7 @@ export default function StammtischEditScreen() {
                                         const { error } = await supabase.rpc('admin_delete_round', { p_id: r.id })
                                         if (error) throw error
                                         await loadDonors()
+                                        await loadBirthdayRounds()
                                         await loadModeration()
                                         setStatus('Runde gelöscht.')
                                       } catch (e: any) {
