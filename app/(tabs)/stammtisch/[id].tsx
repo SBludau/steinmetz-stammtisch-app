@@ -636,9 +636,41 @@ export default function StammtischEditScreen() {
     return null
   }
 
+  const dueRoundLookup = useMemo(() => {
+    const map = new Map<string, BR>()
+    for (const round of dueRounds) {
+      const monthKey = round.due_month.slice(0, 7)
+      if (round.auth_user_id) {
+        map.set(`auth:${round.auth_user_id}|${monthKey}`, round)
+      }
+      if (round.profile_id != null) {
+        map.set(`profile:${round.profile_id}|${monthKey}`, round)
+      }
+    }
+    return map
+  }, [dueRounds])
+
+  const findDueRoundFor = useCallback(
+    (authUserId: string | null | undefined, profileId: number | null | undefined, monthYYYYMM: string) => {
+      if (!monthYYYYMM) return null
+      if (authUserId) {
+        const byAuth = dueRoundLookup.get(`auth:${authUserId}|${monthYYYYMM}`)
+        if (byAuth) return byAuth
+      }
+      if (profileId != null) {
+        const byProfile = dueRoundLookup.get(`profile:${profileId}|${monthYYYYMM}`)
+        if (byProfile) return byProfile
+      }
+      return null
+    },
+    [dueRoundLookup]
+  )
+
   const checkGiven = (authUserId: string | null, profileId: number | null, monthYYYYMM: string) => {
     if (authUserId && givenLinkedByMonth.get(authUserId)?.has(monthYYYYMM)) return true
     if (profileId != null && givenUnlinkedByMonth.get(profileId)?.has(monthYYYYMM)) return true
+    const round = findDueRoundFor(authUserId, profileId, monthYYYYMM)
+    if (round && (round.settled_stammtisch_id != null || !!round.settled_at)) return true
     return false
   }
 
@@ -752,11 +784,20 @@ export default function StammtischEditScreen() {
                         // bereits gegeben (pending oder approved)?
                         const hasGiven = checkGiven(p.auth_user_id, p.id, currentMonthYYYYMM)
 
+                        const roundForMonth = findDueRoundFor(p.auth_user_id, p.id, currentMonthYYYYMM)
+
                         // pending speziell (für evtl. Styling)
-                        const isPending =
+                        const pendingFromDonors =
                           p.auth_user_id
                             ? (pendingLinkedByMonth.get(p.auth_user_id)?.has(currentMonthYYYYMM) ?? false)
                             : (pendingUnlinkedMonthsByProfile.get(p.id)?.has(currentMonthYYYYMM) ?? false)
+
+                        const pendingFromRound =
+                          !!roundForMonth &&
+                          (roundForMonth.settled_stammtisch_id != null || !!roundForMonth.settled_at) &&
+                          !roundForMonth.approved_at
+
+                        const isPending = pendingFromDonors || pendingFromRound
 
                         const canClick =
                           !hasGiven && (
@@ -829,10 +870,16 @@ export default function StammtischEditScreen() {
                         const attending = r.auth_user_id ? (attLinked[r.auth_user_id] || 'declined') === 'going' : false
 
                         const hasGiven = checkGiven(r.auth_user_id, r.profile_id, month)
-                        const isPending =
+
+                        const pendingFromDonors =
                           r.auth_user_id
                             ? (pendingLinkedByMonth.get(r.auth_user_id)?.has(month) ?? false)
                             : (r.profile_id != null && (pendingUnlinkedMonthsByProfile.get(r.profile_id)?.has(month) ?? false))
+
+                        const pendingFromRound =
+                          (r.settled_stammtisch_id != null || !!r.settled_at) && !r.approved_at
+
+                        const isPending = pendingFromDonors || pendingFromRound
 
                         const canClick =
                           !hasGiven && (
