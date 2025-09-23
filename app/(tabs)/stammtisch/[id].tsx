@@ -64,7 +64,7 @@ const degPrefix = (d?: Degree) => (d === 'dr' ? 'Dr. ' : d === 'prof' ? 'Prof. '
 const AVATAR_BASE_URL = 'https://bcbqnkycjroiskwqcftc.supabase.co/storage/v1/object/public/avatars'
 const CONFIRMED_COLOR = '#4CAF50'
 const PENDING_COLOR = '#9E9E9E'
-const EARLIEST_DUE_MONTH = '2025-10-01'
+const EARLIEST_DUE_MONTH = '2025-09-01'
 
 export default function StammtischEditScreen() {
   const insets = useSafeAreaInsets()
