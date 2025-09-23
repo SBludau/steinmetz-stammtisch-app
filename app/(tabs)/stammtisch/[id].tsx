@@ -29,6 +29,7 @@ type BR = {
   auth_user_id: string | null
   profile_id: number | null
   due_month: string
+  first_due_stammtisch_id: number | null
   settled_stammtisch_id: number | null
   settled_at: string | null
   approved_at?: string | null
@@ -40,11 +41,6 @@ const firstOfMonth = (dateStr: string) => {
   if (!dateStr) return ''
   const [y, m] = dateStr.split('-')
   return `${y}-${m}-01`
-}
-const addMonths = (yyyyMmDd: string, diff: number) => {
-  const d = new Date(yyyyMmDd + 'T00:00:00')
-  d.setMonth(d.getMonth() + diff)
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`
 }
 const germanMonthYear = (iso: string) => {
   if (!iso) return '–'
@@ -68,6 +64,7 @@ const degPrefix = (d?: Degree) => (d === 'dr' ? 'Dr. ' : d === 'prof' ? 'Prof. '
 const AVATAR_BASE_URL = 'https://bcbqnkycjroiskwqcftc.supabase.co/storage/v1/object/public/avatars'
 const CONFIRMED_COLOR = '#4CAF50'
 const PENDING_COLOR = '#9E9E9E'
+const EARLIEST_DUE_MONTH = '2025-10-01'
 
 export default function StammtischEditScreen() {
   const insets = useSafeAreaInsets()
@@ -111,6 +108,7 @@ export default function StammtischEditScreen() {
     auth_user_id: string | null
     profile_id: number | null
     due_month: string | null
+    first_due_stammtisch_id: number | null
     settled_at: string | null
     approved_at?: string | null
   }
@@ -221,26 +219,44 @@ export default function StammtischEditScreen() {
       if (!Number.isFinite(idNum) || !date) { setDueRounds([]); return }
 
       const currentFirst = firstOfMonth(date)
-      const monthsToBackfill = 12
-      for (let i = monthsToBackfill - 1; i >= 0; i--) {
-        const m = addMonths(currentFirst, -i)
-        try {
-          await supabase.rpc('seed_birthday_rounds', { p_due_month: m, p_stammtisch_id: idNum })
-        } catch {}
+      if (!currentFirst) { setDueRounds([]); return }
+      if (currentFirst < EARLIEST_DUE_MONTH) {
+        setDueRounds([])
+        return
       }
 
-      const { data, error } = await supabase
-        .from('birthday_rounds')
-        .select('id, auth_user_id, profile_id, due_month, settled_stammtisch_id, settled_at, approved_at')
-        .lte('due_month', currentFirst)
-        .is('approved_at', null)
-        .order('due_month', { ascending: true })
-        .order('settled_at', { ascending: true, nullsFirst: true })
-      if (error) throw error
+      const fetchRounds = async () => {
+        const { data, error } = await supabase
+          .from('birthday_rounds')
+          .select(
+            'id, auth_user_id, profile_id, due_month, first_due_stammtisch_id, settled_stammtisch_id, settled_at, approved_at'
+          )
+          .gte('due_month', EARLIEST_DUE_MONTH)
+          .lte('due_month', currentFirst)
+          .order('due_month', { ascending: true })
+          .order('settled_at', { ascending: true, nullsFirst: true })
+        if (error) throw error
+        return (data ?? []) as BR[]
+      }
 
-      setDueRounds((data ?? []) as BR[])
+      let rows = await fetchRounds()
+      const hasSeededCurrentMonth = rows.some(
+        (r) => r.due_month === currentFirst && r.first_due_stammtisch_id != null
+      )
+
+      if (!hasSeededCurrentMonth) {
+        try {
+          await supabase.rpc('seed_birthday_rounds', { p_due_month: currentFirst, p_stammtisch_id: idNum })
+        } catch (seedErr) {
+          console.warn('seed_birthday_rounds failed', (seedErr as any)?.message ?? seedErr)
+        }
+        rows = await fetchRounds()
+      }
+
+      setDueRounds(rows.filter((r) => !r.approved_at))
     } catch (e: any) {
       setRoundsErr(e?.message ?? 'Fehler beim Laden der Geburtstags-Runden.')
+      setDueRounds([])
     } finally {
       setLoadingRounds(false)
     }
@@ -253,7 +269,7 @@ export default function StammtischEditScreen() {
       if (!Number.isFinite(idNum)) { setDonors([]); return }
       const { data, error } = await supabase
         .from('birthday_rounds')
-        .select('id, auth_user_id, profile_id, due_month, settled_stammtisch_id, settled_at, approved_at')
+        .select('id, auth_user_id, profile_id, due_month, first_due_stammtisch_id, settled_stammtisch_id, settled_at, approved_at')
         .eq('settled_stammtisch_id', idNum)
         .order('settled_at', { ascending: true })
       if (error) throw error
@@ -262,6 +278,7 @@ export default function StammtischEditScreen() {
         auth_user_id: (d.auth_user_id ?? null) as string | null,
         profile_id: (d.profile_id ?? null) as number | null,
         due_month: (d.due_month ?? null) as string | null,
+        first_due_stammtisch_id: (d.first_due_stammtisch_id ?? null) as number | null,
         settled_at: d.settled_at as string | null,
         approved_at: d.approved_at as string | null,
       })))
@@ -387,17 +404,18 @@ export default function StammtischEditScreen() {
   const currentMonthKey = date ? firstOfMonth(date) : ''
   const currentMonthYYYYMM = currentMonthKey.slice(0, 7)
   const currentMonth = date ? date.slice(5,7) : ''
+  const isBeforeEarliestDue = currentMonthKey !== '' && currentMonthKey < EARLIEST_DUE_MONTH
 
   // Geburtstagsliste für den Monat
   const currentMonthBirthdays = useMemo(() => {
-    if (!date) return []
+    if (!date || isBeforeEarliestDue) return []
     return profiles
       .filter(p => !!p.birthday && (p.birthday as string).slice(5,7) === currentMonth)
       .sort((a, b) =>
         (a.last_name || '').localeCompare((b.last_name || ''), 'de', { sensitivity: 'base' }) ||
         (a.first_name || '').localeCompare((b.first_name || ''), 'de', { sensitivity: 'base' })
       )
-  }, [profiles, date, currentMonth])
+  }, [profiles, date, currentMonth, isBeforeEarliestDue])
 
   // offene (unsettled) Runden im aktuellen Monat – verknüpft (für Open-Map)
   const openCurrentMap = useMemo(() => {
@@ -489,6 +507,7 @@ export default function StammtischEditScreen() {
         const payload: any = {
           auth_user_id: userId,
           due_month: dueFirst,
+          first_due_stammtisch_id: idNum,
           settled_stammtisch_id: idNum,
           settled_at: settledAt,
         }
@@ -615,12 +634,16 @@ export default function StammtischEditScreen() {
 
   // nur bestätigte Spender oben anzeigen
   const approvedDonors = useMemo(
-    () => donors.filter(d => !!d.approved_at),
+    () => donors.filter(d => !!d.approved_at && d.first_due_stammtisch_id == null),
     [donors]
   )
 
   // Sichtbarkeiten
-  const showBirthdayBox = !loadingRounds && !roundsErr && (currentMonthBirthdays.length > 0 || overdueRounds.length > 0)
+  const showBirthdayBox =
+    !loadingRounds &&
+    !roundsErr &&
+    !isBeforeEarliestDue &&
+    (currentMonthBirthdays.length > 0 || overdueRounds.length > 0)
   const showDonorsBox = !loadingDonors && donors.length > 0
 
   // Helpers
