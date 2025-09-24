@@ -728,7 +728,7 @@ export default function StammtischEditScreen() {
     () => donors.filter(d => !!d.approved_at && d.first_due_stammtisch_id == null),
     [donors]
   )
-  const approvedDonors = useMemo(
+  const approvedExtraDonors = useMemo(
     () => donorExtras.filter(d => !!d.approved_at),
     [donorExtras]
   )
