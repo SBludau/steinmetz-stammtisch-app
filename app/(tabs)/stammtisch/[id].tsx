@@ -754,43 +754,12 @@ export default function StammtischEditScreen() {
     return null
   }
 
-  const dueRoundLookup = useMemo(() => {
-    const map = new Map<string, BR>()
-    for (const round of dueRounds) {
-      const monthKey = round.due_month.slice(0, 7)
-      if (round.auth_user_id) {
-        map.set(`auth:${round.auth_user_id}|${monthKey}`, round)
-      }
-      if (round.profile_id != null) {
-        map.set(`profile:${round.profile_id}|${monthKey}`, round)
-      }
-    }
-    return map
-  }, [dueRounds])
-
-  const findDueRoundFor = useCallback(
-    (authUserId: string | null | undefined, profileId: number | null | undefined, monthYYYYMM: string) => {
-      if (!monthYYYYMM) return null
-      if (authUserId) {
-        const byAuth = dueRoundLookup.get(`auth:${authUserId}|${monthYYYYMM}`)
-        if (byAuth) return byAuth
-      }
-      if (profileId != null) {
-        const byProfile = dueRoundLookup.get(`profile:${profileId}|${monthYYYYMM}`)
-        if (byProfile) return byProfile
-      }
-      return null
-    },
-    [dueRoundLookup]
-  )
-
   const checkGiven = (authUserId: string | null, profileId: number | null, monthYYYYMM: string) => {
-    const round = resolveDueRound(authUserId, profileId, monthYYYYMM)
-    if (round && round.settled_stammtisch_id && round.settled_at) return true
+    const dueRound = resolveDueRound(authUserId, profileId, monthYYYYMM)
+    if (dueRound && dueRound.settled_stammtisch_id && dueRound.settled_at) return true
     if (authUserId && givenLinkedByMonth.get(authUserId)?.has(monthYYYYMM)) return true
     if (profileId != null && givenUnlinkedByMonth.get(profileId)?.has(monthYYYYMM)) return true
-    const round = findDueRoundFor(authUserId, profileId, monthYYYYMM)
-    if (round && (round.settled_stammtisch_id != null || !!round.settled_at)) return true
+    if (dueRound && (dueRound.settled_stammtisch_id != null || !!dueRound.settled_at)) return true
     return false
   }
 
@@ -907,7 +876,7 @@ export default function StammtischEditScreen() {
                         // bereits gegeben (pending oder approved)?
                         const hasGiven = checkGiven(p.auth_user_id, p.id, currentMonthYYYYMM)
 
-                        const roundForMonth = findDueRoundFor(p.auth_user_id, p.id, currentMonthYYYYMM)
+                        const dueRoundForMonth = resolveDueRound(p.auth_user_id, p.id, currentMonthYYYYMM)
 
                         // pending speziell (für evtl. Styling)
                         const pendingFromDonors =
@@ -916,9 +885,9 @@ export default function StammtischEditScreen() {
                             : (pendingUnlinkedMonthsByProfile.get(p.id)?.has(currentMonthYYYYMM) ?? false)
 
                         const pendingFromRound =
-                          !!roundForMonth &&
-                          (roundForMonth.settled_stammtisch_id != null || !!roundForMonth.settled_at) &&
-                          !roundForMonth.approved_at
+                          !!dueRoundForMonth &&
+                          (dueRoundForMonth.settled_stammtisch_id != null || !!dueRoundForMonth.settled_at) &&
+                          !dueRoundForMonth.approved_at
 
                         const isPending = pendingFromDonors || pendingFromRound
 
