@@ -1529,19 +1529,30 @@ CREATE FUNCTION public.seed_birthday_rounds(p_due_month date, p_stammtisch_id bi
     LANGUAGE sql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-  with prev_month as (
-    select (date_trunc('month', p_due_month) - interval '1 month')::date as pm
+  with params as (
+    select
+      date_trunc('month', p_due_month)::date as due_month,
+      (date_trunc('month', p_due_month) - interval '1 month')::date as prev_month
   ),
-  ins as (
-    insert into public.birthday_rounds (auth_user_id, due_month, first_due_stammtisch_id)
+  eligible as (
     select
       pr.auth_user_id,
-      date_trunc('month', p_due_month)::date as due_month,
+      pr.id as profile_id,
+      p.due_month
+    from params p
+    join public.profiles pr on pr.birthday is not null
+    where p.due_month >= date '2025-10-01'
+      and extract(month from pr.birthday) = extract(month from p.prev_month)
+  ),
+  ins as (
+    insert into public.birthday_rounds (auth_user_id, profile_id, due_month, first_due_stammtisch_id)
+    select
+      e.auth_user_id,
+      e.profile_id,
+      e.due_month,
       p_stammtisch_id
-    from public.profiles pr
-    cross join prev_month s
-    where extract(month from pr.birthday) = extract(month from s.pm)
-    on conflict (auth_user_id, due_month) do nothing
+    from eligible e
+    on conflict do nothing
     returning 1
   )
   select count(*)::int from ins;
