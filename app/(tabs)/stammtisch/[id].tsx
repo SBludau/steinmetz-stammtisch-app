@@ -32,6 +32,7 @@ type BR = {
   first_due_stammtisch_id: number | null
   settled_stammtisch_id: number | null
   settled_at: string | null
+  first_due_stammtisch_id: number | null
   approved_at?: string | null
 }
 
@@ -110,6 +111,7 @@ export default function StammtischEditScreen() {
     due_month: string | null
     first_due_stammtisch_id: number | null
     settled_at: string | null
+    first_due_stammtisch_id: number | null
     approved_at?: string | null
   }
   const [donors, setDonors] = useState<Donor[]>([])
@@ -280,6 +282,7 @@ export default function StammtischEditScreen() {
         due_month: (d.due_month ?? null) as string | null,
         first_due_stammtisch_id: (d.first_due_stammtisch_id ?? null) as number | null,
         settled_at: d.settled_at as string | null,
+        first_due_stammtisch_id: (d.first_due_stammtisch_id ?? null) as number | null,
         approved_at: d.approved_at as string | null,
       })))
     } catch {
@@ -320,6 +323,44 @@ export default function StammtischEditScreen() {
   useEffect(() => { loadBirthdayRounds() }, [loadBirthdayRounds])
   useEffect(() => { loadDonors() }, [loadDonors])
   useEffect(() => { if (isAdmin) loadModeration() }, [isAdmin, loadModeration])
+
+  const toggleAttendanceLinked = useCallback(async (authUserId: string) => {
+    if (!Number.isFinite(idNum)) return
+    const current = attLinked[authUserId] ?? 'declined'
+    const next: AttStatus = current === 'going' ? 'declined' : 'going'
+    setAttLinked(prev => ({ ...prev, [authUserId]: next }))
+    try {
+      const { error } = await supabase
+        .from('stammtisch_participants')
+        .upsert(
+          { stammtisch_id: idNum, auth_user_id: authUserId, status: next },
+          { onConflict: 'stammtisch_id,auth_user_id' }
+        )
+      if (error) throw error
+    } catch (e: any) {
+      setAttLinked(prev => ({ ...prev, [authUserId]: current }))
+      Alert.alert('Fehler', e?.message ?? 'Konnte Anwesenheit nicht ändern.')
+    }
+  }, [attLinked, idNum])
+
+  const toggleAttendanceUnlinked = useCallback(async (profileId: number) => {
+    if (!Number.isFinite(idNum)) return
+    const current = attUnlinked[profileId] ?? 'declined'
+    const next: AttStatus = current === 'going' ? 'declined' : 'going'
+    setAttUnlinked(prev => ({ ...prev, [profileId]: next }))
+    try {
+      const { error } = await supabase
+        .from('stammtisch_participants_unlinked')
+        .upsert(
+          { stammtisch_id: idNum, profile_id: profileId, status: next },
+          { onConflict: 'stammtisch_id,profile_id' }
+        )
+      if (error) throw error
+    } catch (e: any) {
+      setAttUnlinked(prev => ({ ...prev, [profileId]: current }))
+      Alert.alert('Fehler', e?.message ?? 'Konnte Anwesenheit nicht ändern.')
+    }
+  }, [attUnlinked, idNum])
 
   // Speichern
   async function save() {
@@ -433,11 +474,40 @@ export default function StammtischEditScreen() {
     return dueRounds.filter(r => r.due_month.slice(0,7) < currentMonthYYYYMM)
   }, [dueRounds, currentMonthYYYYMM])
 
+  const dueRoundLookup = useMemo(() => {
+    const map = new Map<string, BR>()
+    for (const r of dueRounds) {
+      const month = r.due_month.slice(0, 7)
+      if (r.auth_user_id) {
+        map.set(`auth:${r.auth_user_id}:${month}`, r)
+      } else if (r.profile_id != null) {
+        map.set(`profile:${r.profile_id}:${month}`, r)
+      }
+    }
+    return map
+  }, [dueRounds])
+
+  const resolveDueRound = useCallback(
+    (authUserId: string | null, profileId: number | null, monthYYYYMM: string): BR | null => {
+      if (authUserId) return dueRoundLookup.get(`auth:${authUserId}:${monthYYYYMM}`) ?? null
+      if (profileId != null) return dueRoundLookup.get(`profile:${profileId}:${monthYYYYMM}`) ?? null
+      return null
+    },
+    [dueRoundLookup]
+  )
+
   // aus allen Donors (settled) Maps für "gegeben" und "pending" machen
-  const donorsPending = useMemo(() => donors.filter(d => !d.approved_at), [donors])
+  const donorBirthdayRounds = useMemo(
+    () => donors.filter(d => d.first_due_stammtisch_id != null),
+    [donors]
+  )
+  const donorsPending = useMemo(
+    () => donorBirthdayRounds.filter(d => !d.approved_at),
+    [donorBirthdayRounds]
+  )
   const givenLinkedByMonth = useMemo(() => {
     const map = new Map<string, Set<string>>() // auth_user_id -> months
-    for (const d of donors) {
+    for (const d of donorBirthdayRounds) {
       if (d.auth_user_id && d.due_month) {
         const m = d.due_month.slice(0,7)
         if (!map.has(d.auth_user_id)) map.set(d.auth_user_id, new Set())
@@ -445,10 +515,10 @@ export default function StammtischEditScreen() {
       }
     }
     return map
-  }, [donors])
+  }, [donorBirthdayRounds])
   const givenUnlinkedByMonth = useMemo(() => {
     const map = new Map<number, Set<string>>() // profile_id -> months
-    for (const d of donors) {
+    for (const d of donorBirthdayRounds) {
       if (!d.auth_user_id && d.profile_id && d.due_month) {
         const m = d.due_month.slice(0,7)
         if (!map.has(d.profile_id)) map.set(d.profile_id, new Set())
@@ -456,7 +526,7 @@ export default function StammtischEditScreen() {
       }
     }
     return map
-  }, [donors])
+  }, [donorBirthdayRounds])
   const pendingLinkedByMonth = useMemo(() => {
     const map = new Map<string, Set<string>>() // auth_user_id -> months
     for (const d of donorsPending) {
@@ -502,6 +572,12 @@ export default function StammtischEditScreen() {
           .update(update)
           .eq('id', roundId)
         if (error) throw error
+        const { error: firstDueErr } = await supabase
+          .from('birthday_rounds')
+          .update({ first_due_stammtisch_id: idNum })
+          .eq('id', roundId)
+          .is('first_due_stammtisch_id', null)
+        if (firstDueErr) throw firstDueErr
       } else {
         const dueFirst = firstOfMonth(date)
         const payload: any = {
@@ -510,6 +586,7 @@ export default function StammtischEditScreen() {
           first_due_stammtisch_id: idNum,
           settled_stammtisch_id: idNum,
           settled_at: settledAt,
+          first_due_stammtisch_id: idNum,
         }
         if (prof?.id) payload.profile_id = prof.id
         const { error } = await supabase.from('birthday_rounds').insert([payload])
@@ -548,6 +625,14 @@ export default function StammtischEditScreen() {
           .eq('due_month', dueFirst)
           .eq('settled_stammtisch_id', idNum)
         if (linkErr) throw linkErr
+        const { error: firstDueErr } = await supabase
+          .from('birthday_rounds')
+          .update({ first_due_stammtisch_id: idNum })
+          .eq('auth_user_id', prof.auth_user_id)
+          .eq('due_month', dueFirst)
+          .eq('settled_stammtisch_id', idNum)
+          .is('first_due_stammtisch_id', null)
+        if (firstDueErr) throw firstDueErr
       } else {
         const { data: recent, error: recentErr } = await supabase
           .from('birthday_rounds')
@@ -566,6 +651,12 @@ export default function StammtischEditScreen() {
             .update({ profile_id: profileId })
             .eq('id', recent.id)
           if (attachErr) throw attachErr
+          const { error: firstDueErr } = await supabase
+            .from('birthday_rounds')
+            .update({ first_due_stammtisch_id: idNum })
+            .eq('id', recent.id)
+            .is('first_due_stammtisch_id', null)
+          if (firstDueErr) throw firstDueErr
         }
       }
 
@@ -637,6 +728,10 @@ export default function StammtischEditScreen() {
     () => donors.filter(d => !!d.approved_at && d.first_due_stammtisch_id == null),
     [donors]
   )
+  const approvedDonors = useMemo(
+    () => donorExtras.filter(d => !!d.approved_at),
+    [donorExtras]
+  )
 
   // Sichtbarkeiten
   const showBirthdayBox =
@@ -690,10 +785,20 @@ export default function StammtischEditScreen() {
   )
 
   const checkGiven = (authUserId: string | null, profileId: number | null, monthYYYYMM: string) => {
+    const round = resolveDueRound(authUserId, profileId, monthYYYYMM)
+    if (round && round.settled_stammtisch_id && round.settled_at) return true
     if (authUserId && givenLinkedByMonth.get(authUserId)?.has(monthYYYYMM)) return true
     if (profileId != null && givenUnlinkedByMonth.get(profileId)?.has(monthYYYYMM)) return true
     const round = findDueRoundFor(authUserId, profileId, monthYYYYMM)
     if (round && (round.settled_stammtisch_id != null || !!round.settled_at)) return true
+    return false
+  }
+
+  const checkPending = (authUserId: string | null, profileId: number | null, monthYYYYMM: string) => {
+    const round = resolveDueRound(authUserId, profileId, monthYYYYMM)
+    if (round && round.settled_stammtisch_id && !round.approved_at) return true
+    if (authUserId && (pendingLinkedByMonth.get(authUserId)?.has(monthYYYYMM) ?? false)) return true
+    if (profileId != null && (pendingUnlinkedMonthsByProfile.get(profileId)?.has(monthYYYYMM) ?? false)) return true
     return false
   }
 
@@ -716,12 +821,7 @@ export default function StammtischEditScreen() {
           <Text style={{ ...type.caption, color: PENDING_COLOR }}>⏳ Wartet auf Bestätigung</Text>
         )
       }
-      return (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={{ color: CONFIRMED_COLOR, fontSize: 16 }}>✓</Text>
-          <Text style={{ ...type.caption, color: CONFIRMED_COLOR, fontWeight: '600' }}>Bestätigt</Text>
-        </View>
-      )
+      return <Text style={{ color: CONFIRMED_COLOR, fontSize: 18 }}>✓</Text>
     }
     if (!showButton) return null
     return (
@@ -1146,6 +1246,25 @@ export default function StammtischEditScreen() {
                             <Text style={type.body}>{fullName(p)}</Text>
 
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              {/* Admin/SU – Spender-Runde auch für Unlinked */}
+                              {isAdmin && !isLinked ? (
+                                <Pressable
+                                  onPress={() => givenForUnlinkedProfile(p.id)}
+                                  style={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 14,
+                                    borderWidth: 1,
+                                    borderColor: colors.border,
+                                    backgroundColor: colors.cardBg,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 16 }}>🎁</Text>
+                                </Pressable>
+                              ) : null}
+
                               {/* Anwesenheit */}
                               <Pressable
                                 onPress={() => isLinked ? toggleAttendanceLinked(p.auth_user_id!) : toggleAttendanceUnlinked(p.id)}
@@ -1158,20 +1277,6 @@ export default function StammtischEditScreen() {
                               >
                                 {isGoing ? <Text style={{ color: colors.bg, fontWeight: 'bold' }}>✓</Text> : null}
                               </Pressable>
-
-                              {/* Admin/SU – Spender-Runde auch für Unlinked */}
-                              {isAdmin && !isLinked ? (
-                                <Pressable
-                                  onPress={() => givenForUnlinkedProfile(p.id)}
-                                  style={{
-                                    paddingVertical: 6, paddingHorizontal: 10,
-                                    borderRadius: 8, borderWidth: 1,
-                                    borderColor: colors.border, backgroundColor: colors.cardBg,
-                                  }}
-                                >
-                                  <Text style={{ color: colors.gold }}>Runde (Admin)</Text>
-                                </Pressable>
-                              ) : null}
                             </View>
                           </View>
                         )
@@ -1219,9 +1324,12 @@ export default function StammtischEditScreen() {
                             gap: 10,
                           }}
                         >
-                          <Text style={type.body}>
-                            {name}{isApproved ? ' — bestätigt' : ' — unbestätigt'}
-                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                            <Text style={type.body}>{name}</Text>
+                            <Text style={{ fontSize: 18, color: isApproved ? CONFIRMED_COLOR : PENDING_COLOR }}>
+                              {isApproved ? '✓' : '⏳'}
+                            </Text>
+                          </View>
                           <View style={{ flexDirection: 'row', gap: 8 }}>
                             {!isApproved ? (
                               <Pressable
@@ -1238,12 +1346,17 @@ export default function StammtischEditScreen() {
                                   }
                                 }}
                                 style={{
-                                  paddingVertical: 6, paddingHorizontal: 10,
-                                  borderRadius: 8, borderWidth: 1,
-                                  borderColor: colors.border, backgroundColor: colors.cardBg,
+                                  width: 34,
+                                  height: 34,
+                                  borderRadius: 10,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                  backgroundColor: colors.cardBg,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
                                 }}
                               >
-                                <Text style={{ color: colors.gold }}>Bestätigen</Text>
+                                <Text style={{ color: colors.gold, fontSize: 18 }}>✓</Text>
                               </Pressable>
                             ) : null}
                             <Pressable
@@ -1267,12 +1380,17 @@ export default function StammtischEditScreen() {
                                 ])
                               }}
                               style={{
-                                paddingVertical: 6, paddingHorizontal: 10,
-                                borderRadius: 8, borderWidth: 1,
-                                borderColor: colors.border, backgroundColor: colors.cardBg,
+                                width: 34,
+                                height: 34,
+                                borderRadius: 10,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                                backgroundColor: colors.cardBg,
+                                alignItems: 'center',
+                                justifyContent: 'center',
                               }}
                             >
-                              <Text style={{ color: '#ff6b6b' }}>Löschen</Text>
+                              <Text style={{ color: '#ff6b6b', fontSize: 18 }}>🗑</Text>
                             </Pressable>
                           </View>
                         </View>
