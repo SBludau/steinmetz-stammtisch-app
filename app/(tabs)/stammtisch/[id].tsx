@@ -32,7 +32,6 @@ type BR = {
   first_due_stammtisch_id: number | null
   settled_stammtisch_id: number | null
   settled_at: string | null
-  first_due_stammtisch_id: number | null
   approved_at?: string | null
 }
 
@@ -111,7 +110,6 @@ export default function StammtischEditScreen() {
     due_month: string | null
     first_due_stammtisch_id: number | null
     settled_at: string | null
-    first_due_stammtisch_id: number | null
     approved_at?: string | null
   }
   const [donors, setDonors] = useState<Donor[]>([])
@@ -282,7 +280,6 @@ export default function StammtischEditScreen() {
         due_month: (d.due_month ?? null) as string | null,
         first_due_stammtisch_id: (d.first_due_stammtisch_id ?? null) as number | null,
         settled_at: d.settled_at as string | null,
-        first_due_stammtisch_id: (d.first_due_stammtisch_id ?? null) as number | null,
         approved_at: d.approved_at as string | null,
       })))
     } catch {
@@ -586,7 +583,6 @@ export default function StammtischEditScreen() {
           first_due_stammtisch_id: idNum,
           settled_stammtisch_id: idNum,
           settled_at: settledAt,
-          first_due_stammtisch_id: idNum,
         }
         if (prof?.id) payload.profile_id = prof.id
         const { error } = await supabase.from('birthday_rounds').insert([payload])
@@ -724,6 +720,7 @@ export default function StammtischEditScreen() {
   )
 
   // nur bestätigte Spender oben anzeigen
+
   const approvedExtraDonors = useMemo(
     () => donors.filter(d => !!d.approved_at && d.first_due_stammtisch_id == null),
     [donors]
