@@ -720,13 +720,9 @@ export default function StammtischEditScreen() {
   )
 
   // nur bestätigte Spender oben anzeigen
-  const donorExtras = useMemo(
-    () => donors.filter(d => d.first_due_stammtisch_id == null),
-    [donors]
-  )
   const approvedExtraDonors = useMemo(
-    () => donorExtras.filter(d => !!d.approved_at),
-    [donorExtras]
+    () => donors.filter(d => !!d.approved_at && d.first_due_stammtisch_id == null),
+    [donors]
   )
 
   // Sichtbarkeiten
