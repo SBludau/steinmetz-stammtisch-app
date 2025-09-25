@@ -720,11 +720,12 @@ export default function StammtischEditScreen() {
   )
 
   // nur bestätigte Spender oben anzeigen
-  const donorExtras = useMemo(
-    () => donors.filter(d => d.first_due_stammtisch_id == null),
+
+  const approvedExtraDonors = useMemo(
+    () => donors.filter(d => !!d.approved_at && d.first_due_stammtisch_id == null),
     [donors]
   )
-  const approvedDonors = useMemo(
+  const approvedExtraDonors = useMemo(
     () => donorExtras.filter(d => !!d.approved_at),
     [donorExtras]
   )
@@ -1039,11 +1040,11 @@ export default function StammtischEditScreen() {
                   <View style={{ padding: 8, alignItems: 'center' }}>
                     <ActivityIndicator color={colors.gold} />
                   </View>
-                ) : approvedDonors.length === 0 ? (
+                ) : approvedExtraDonors.length === 0 ? (
                   <Text style={type.body}>Noch keine bestätigten Runden.</Text>
                 ) : (
                   <ScrollView style={{ maxHeight: 220 }} contentContainerStyle={{ paddingBottom: 6 }} showsVerticalScrollIndicator>
-                    {approvedDonors.map((d) => {
+                    {approvedExtraDonors.map((d) => {
                       const prof = findProfileBy(d.auth_user_id, d.profile_id)
                       const name = prof ? fullName(prof) : (d.auth_user_id ?? 'Unverknüpft')
                       const avatar = avatarUrlFor(prof || null)
