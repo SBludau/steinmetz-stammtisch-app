@@ -11,6 +11,33 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 - Google Auth-Login Display überprüfen/vereinheitlichen
 
 ---
+## [0.4.1] - 2025-10-08
+
+**Geänderte Dateien**
+
+* `app/(tabs)/stats.tsx`
+* `app/stammtisch/[id].tsx`
+
+### Changed
+
+* **Statistiken**
+
+  * Zählen von **verknüpften *und* unverknüpften** Profilen bei Teilnahmen & Serien.
+  * Berücksichtigung **nur vergangener Stammtische inkl. heute** (keine zukünftigen).
+  * **Spender-Ranking** zählt **nur bestätigte** Runden nach **Bestätigungsdatum (`approved_at`)** – bis **inkl. heute** (halb-offenes Intervall).
+  * **Gleichstände** werden als **geteilte Plätze (#1/#2/#3)** dargestellt.
+  * **Automatisches Refresh** beim Öffnen (Focus-Reload).
+
+### Fixed
+
+* **Stammtisch (Einzelseite)**
+
+  * Fehlende `confirmDelete`-Funktion ergänzt.
+  * Überfällige/aktuelle Geburtstagsrunden korrekt ermittelt; **bestätigte** Runden erscheinen **nicht mehr** als überfällig.
+  * **Zeitfenster-Sperre** wieder aktiv: Runden können nur **am Stammtisch-Tag und am Folgetag** verbucht werden.
+
+---
+
 
 ## [0.4.0] - 2025-09-13
 ### Added
