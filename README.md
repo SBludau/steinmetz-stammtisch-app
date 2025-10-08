@@ -68,10 +68,6 @@ cd steinmetz-stammtisch-app
 # 2) Abhängigkeiten (wie im lockfile)
 npm ci
 
-# 3) Dev-Server starten
-npx expo start -c
-# Web: 'w' drücken
-# Android-Emulator: 'a' drücken (Emulator muss laufen)
 ```
 
 ---
@@ -80,26 +76,20 @@ npx expo start -c
 
 **Expo Dev-Server** liefert Live-Reload & Fast Refresh.
 
-* **Standard (Expo Go ausreichend):**
-
-  ```bash
-  npx expo start -c
+  ```cmd
+  cd C:\Users\Sebastian Bludau\Documents\stammtisch-app
   ```
+* **Mit Dev Client (falls native Module nötig):**
 
+  ```cmd
+  npx expo start -c --dev-client
+  ```
   * `w` → Web
   * `a` → Android Emulator
   * `r` → Reload
   * `shift+r` → Cache leeren
 
-* **Mit Dev Client (falls native Module nötig):**
-
-  ```bash
-  npx expo start -c --dev-client
-  ```
-
-  > Für Google-Login wurde ein Dev-Client empfohlen.
-
-**Tipp:** Bei seltsamen Zuständen → mit `-c` neu starten.
+**Tipp:** Bei seltsamen Zuständen → mit `-c` neu starten und dann expo Server neu starten
 
 ---
 
@@ -119,35 +109,9 @@ npx expo start -c
   * `stammtisch://auth-callback`
   * `https://auth.expo.io/@sbludau/steinmetz-stammtisch-app`
 
-### Google OAuth (Authentication → Providers → Google)
-
-* Client-ID & Secret aus GCP
-* Consent-Screen konfigurieren
-
-### Deep Link in der App
-
-* `app.json`:
-
-  ```json
-  { "expo": { "scheme": "stammtisch" } }
-  ```
-* Callback-Screen: `app/auth-callback.tsx`
 
 ---
 
-## Entwicklung (Web & Android-Emulator)
-
-### Web
-
-```bash
-npx expo start
-# 'w' drücken
-```
-
-### Android-Emulator
-
-1. AVD anlegen/starten
-2. Expo starten: `npx expo start` → `a`
 
 **Windows-Pfadvariablen (temporär):**
 
