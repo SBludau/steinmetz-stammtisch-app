@@ -1,9 +1,11 @@
 // app/(tabs)/_layout.tsx
+import React from 'react'
 import { Tabs } from 'expo-router'
 
 export default function Layout() {
   return (
     <Tabs
+      initialRouteName="index"
       screenOptions={{
         headerShown: false,
         tabBarStyle: { display: 'none' }, // native Tab-Bar ausblenden

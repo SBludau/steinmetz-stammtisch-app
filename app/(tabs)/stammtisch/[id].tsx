@@ -359,71 +359,197 @@ export default function StammtischEditScreen() {
     }
   }, [attUnlinked, idNum])
 
-  // Speichern
-  async function save() {
-    if (!Number.isFinite(idNum)) { setError('Ungültige ID.'); return }
+  // *** due_month anhand des Geburtstagsmonats des Profils im Jahr des Stammtischs ***
+  const dueFirstForProfileThisYear = useCallback((prof?: Profile | null) => {
+    const fallback = firstOfMonth(date)
+    if (!prof?.birthday) return fallback
+    const birthMM = prof.birthday.slice(5, 7) // 'MM'
+    const year = date ? date.slice(0, 4) : String(new Date().getFullYear())
+    return `${year}-${birthMM}-01`
+  }, [date])
+
+  // „Gegeben“ (linked) – Admin darf Attendance ignorieren
+  async function givenCurrentOrOverdue(userId: string, roundId?: number) {
+    if (!Number.isFinite(idNum) || !date) return
+    const attending = (attLinked[userId] || 'declined') === 'going'
+    if (!attending && !isAdmin) {
+      Alert.alert('Hinweis', 'Runden können nur von anwesenden Mitgliedern gegeben werden.')
+      return
+    }
     try {
-      setSaving(true); setStatus(null); setError(null)
-      const { error } = await supabase.from('stammtisch').update({ date, location, notes }).eq('id', idNum)
-      if (error) throw error
-      setStatus('Gespeichert.')
-      await supabase.channel('client-refresh').send({ type: 'broadcast', event: 'stammtisch-saved', payload: { id: idNum } })
+      const prof = profiles.find(p => p.auth_user_id === userId)
+      const settledAt = new Date().toISOString()
+      if (roundId) {
+        const update: Record<string, any> = {
+          settled_stammtisch_id: idNum,
+          settled_at: settledAt,
+        }
+        if (prof?.id) update.profile_id = prof.id
+        const { error } = await supabase
+          .from('birthday_rounds')
+          .update(update)
+          .eq('id', roundId)
+        if (error) throw error
+        const { error: firstDueErr } = await supabase
+          .from('birthday_rounds')
+          .update({ first_due_stammtisch_id: idNum })
+          .eq('id', roundId)
+          .is('first_due_stammtisch_id', null)
+        if (firstDueErr) throw firstDueErr
+      } else {
+        // due_month am Geburtsmonat ausrichten
+        const dueFirst = dueFirstForProfileThisYear(prof)
+        const payload: any = {
+          auth_user_id: userId,
+          due_month: dueFirst,
+          first_due_stammtisch_id: idNum,
+          settled_stammtisch_id: idNum,
+          settled_at: settledAt,
+        }
+        if (prof?.id) payload.profile_id = prof.id
+        const { error } = await supabase.from('birthday_rounds').insert([payload])
+        if (error) throw error
+      }
+      await loadDonors()
       await loadBirthdayRounds()
+      if (isAdmin) await loadModeration()
     } catch (e: any) {
-      setError(e?.message ?? 'Fehler beim Speichern.')
-    } finally {
-      setSaving(false)
+      Alert.alert('Fehler', e?.message ?? 'Konnte Runde nicht verbuchen.')
     }
   }
 
-  // Löschen (RPC)
-  function confirmDelete() {
-    if (!Number.isFinite(idNum)) { Alert.alert('Fehler', 'Ungültige ID.'); return }
-    Alert.alert(
-      'Eintrag löschen?',
-      'Dieser Vorgang kann nicht rückgängig gemacht werden.',
-      [
-        { text: 'Abbrechen', style: 'cancel' },
-        {
-          text: deleting ? 'Lösche…' : 'Löschen',
-          style: 'destructive',
-          onPress: async () => {
-            if (deleting) return
-            try {
-              setDeleting(true)
-              const { error: rpcErr } = await supabase.rpc('admin_delete_stammtisch', { p_id: idNum })
-              if (rpcErr) throw rpcErr
+  // „Gegeben“ für unverknüpfte Profile (nur Admin/SU)
+  async function givenForUnlinkedProfile(profileId: number) {
+    if (!Number.isFinite(idNum) || !date) return
+    if (!isAdmin) {
+      Alert.alert('Nicht erlaubt', 'Nur Admin/Superuser können unverknüpfte Runden verbuchen.')
+      return
+    }
+    try {
+      const prof = profiles.find(p => p.id === profileId) || null
+      // due_month am Geburtsmonat ausrichten
+      const dueFirst = dueFirstForProfileThisYear(prof)
 
-              await supabase
-                .channel('client-refresh')
-                .send({ type: 'broadcast', event: 'stammtisch-saved', payload: { id: idNum } })
+      const { error } = await supabase.rpc('admin_give_unlinked_birthday_round', {
+        p_profile_id: profileId,
+        p_stammtisch_id: idNum,
+        p_due_month: dueFirst,
+      })
+      if (error) throw error
 
-              router.back()
-            } catch (e: any) {
-              Alert.alert('Fehler', e?.message ?? 'Löschen fehlgeschlagen (RPC nicht vorhanden oder RLS?).')
-            } finally {
-              setDeleting(false)
-            }
-          },
-        },
-      ]
-    )
+      if (prof?.auth_user_id) {
+        const { error: linkErr } = await supabase
+          .from('birthday_rounds')
+          .update({ profile_id: profileId })
+          .eq('auth_user_id', prof.auth_user_id)
+          .eq('due_month', dueFirst)
+          .eq('settled_stammtisch_id', idNum)
+        if (linkErr) throw linkErr
+        const { error: firstDueErr } = await supabase
+          .from('birthday_rounds')
+          .update({ first_due_stammtisch_id: idNum })
+          .eq('auth_user_id', prof.auth_user_id)
+          .eq('due_month', dueFirst)
+          .eq('settled_stammtisch_id', idNum)
+          .is('first_due_stammtisch_id', null)
+        if (firstDueErr) throw firstDueErr
+      } else {
+        const { data: recent, error: recentErr } = await supabase
+          .from('birthday_rounds')
+          .select('id')
+          .eq('settled_stammtisch_id', idNum)
+          .eq('due_month', dueFirst)
+          .is('auth_user_id', null)
+          .is('profile_id', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (recentErr) throw recentErr
+        if (recent?.id) {
+          const { error: attachErr } = await supabase
+            .from('birthday_rounds')
+            .update({ profile_id: profileId })
+            .eq('id', recent.id)
+          if (attachErr) throw attachErr
+          const { error: firstDueErr } = await supabase
+            .from('birthday_rounds')
+            .update({ first_due_stammtisch_id: idNum })
+            .eq('id', recent.id)
+            .is('first_due_stammtisch_id', null)
+          if (firstDueErr) throw firstDueErr
+        }
+      }
+
+      await loadDonors()
+      await loadBirthdayRounds()
+      await loadModeration()
+      Alert.alert('Erfasst', 'Geburtstagsrunde wurde verbucht (unverknüpft).')
+    } catch (e: any) {
+      Alert.alert('Fehler', e?.message ?? 'RPC admin_give_unlinked_birthday_round fehlt oder schlug fehl.')
+    }
   }
 
-  // Calendar theme
-  const calendarTheme = {
-    backgroundColor: colors.cardBg,
-    calendarBackground: colors.cardBg,
-    textSectionTitleColor: colors.text,
-    dayTextColor: colors.text,
-    monthTextColor: colors.text,
-    selectedDayBackgroundColor: colors.gold,
-    selectedDayTextColor: colors.bg,
-    todayTextColor: colors.gold,
-    arrowColor: colors.text,
-  } as const
-  const marked = date ? { [date]: { selected: true } } : undefined
-  const initialDate = date || ymd(new Date())
+  // Extra-Runde (Zeitfenster-Check aus, Admin darf immer)
+  async function giveExtraRound() {
+    if (!Number.isFinite(idNum) || !date) return
+    const { data: sess } = await supabase.auth.getUser()
+    const uid = sess?.user?.id
+    if (!uid && !isAdmin) { Alert.alert('Fehler', 'Nicht eingeloggt.'); return }
+    if (!isAdmin) {
+      if ((attLinked[uid!] || 'declined') !== 'going') {
+        Alert.alert('Hinweis', 'Extra-Runden können nur gegeben werden, wenn du anwesend bist.')
+        return
+      }
+    }
+    try {
+      const dueFirst = firstOfMonth(date) // Extra-Runde bleibt beim Stammtisch-Monat
+      const prof = uid ? profiles.find(p => p.auth_user_id === uid) : null
+      const payload: any = {
+        auth_user_id: uid ?? null,
+        profile_id: prof?.id ?? null,
+        due_month: dueFirst,
+        settled_stammtisch_id: idNum,
+        settled_at: new Date().toISOString(),
+      }
+      const { error } = await supabase.from('birthday_rounds').insert([payload])
+      if (error) throw error
+
+      await loadDonors()
+      await loadBirthdayRounds()
+      if (isAdmin) await loadModeration()
+      Alert.alert('Danke!', 'Runde wurde verbucht.')
+    } catch (e: any) {
+      Alert.alert('Fehler', e?.message ?? 'Konnte Runde nicht verbuchen.')
+    }
+  }
+
+  const Box = ({ children }: { children: React.ReactNode }) => (
+    <View
+      style={{
+        borderRadius: radius.md,
+        backgroundColor: colors.cardBg,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: 10,
+        marginTop: 10,
+      }}
+    >
+      {children}
+    </View>
+  )
+
+  const activeProfiles = useMemo(
+    () => profiles.filter(p => p.is_active !== false),
+    [profiles]
+  )
+
+  // nur bestätigte Spender oben anzeigen
+  const approvedExtraDonors = useMemo(
+    () => donors.filter(d => !!d.approved_at && d.first_due_stammtisch_id == null),
+    [donors]
+  )
+
+  // --------- Ab hier: Alle Ableitungen, die später in showBirthdayBox verwendet werden ---------
 
   // Name + Avatar
   const fullName = useMemo(
@@ -547,190 +673,7 @@ export default function StammtischEditScreen() {
     return map
   }, [donorsPending])
 
-  // „Gegeben“ (linked) – Admin darf Attendance ignorieren
-  async function givenCurrentOrOverdue(userId: string, roundId?: number) {
-    if (!Number.isFinite(idNum) || !date) return
-    const attending = (attLinked[userId] || 'declined') === 'going'
-    if (!attending && !isAdmin) {
-      Alert.alert('Hinweis', 'Runden können nur von anwesenden Mitgliedern gegeben werden.')
-      return
-    }
-    try {
-      const prof = profiles.find(p => p.auth_user_id === userId)
-      const settledAt = new Date().toISOString()
-      if (roundId) {
-        const update: Record<string, any> = {
-          settled_stammtisch_id: idNum,
-          settled_at: settledAt,
-        }
-        if (prof?.id) update.profile_id = prof.id
-        const { error } = await supabase
-          .from('birthday_rounds')
-          .update(update)
-          .eq('id', roundId)
-        if (error) throw error
-        const { error: firstDueErr } = await supabase
-          .from('birthday_rounds')
-          .update({ first_due_stammtisch_id: idNum })
-          .eq('id', roundId)
-          .is('first_due_stammtisch_id', null)
-        if (firstDueErr) throw firstDueErr
-      } else {
-        const dueFirst = firstOfMonth(date)
-        const payload: any = {
-          auth_user_id: userId,
-          due_month: dueFirst,
-          first_due_stammtisch_id: idNum,
-          settled_stammtisch_id: idNum,
-          settled_at: settledAt,
-        }
-        if (prof?.id) payload.profile_id = prof.id
-        const { error } = await supabase.from('birthday_rounds').insert([payload])
-        if (error) throw error
-      }
-      await loadDonors()
-      await loadBirthdayRounds()
-      if (isAdmin) await loadModeration()
-    } catch (e: any) {
-      Alert.alert('Fehler', e?.message ?? 'Konnte Runde nicht verbuchen.')
-    }
-  }
-
-  // „Gegeben“ für unverknüpfte Profile (nur Admin/SU)
-  async function givenForUnlinkedProfile(profileId: number) {
-    if (!Number.isFinite(idNum) || !date) return
-    if (!isAdmin) {
-      Alert.alert('Nicht erlaubt', 'Nur Admin/Superuser können unverknüpfte Runden verbuchen.')
-      return
-    }
-    try {
-      const dueFirst = firstOfMonth(date)
-      const prof = profiles.find(p => p.id === profileId) || null
-      const { error } = await supabase.rpc('admin_give_unlinked_birthday_round', {
-        p_profile_id: profileId,
-        p_stammtisch_id: idNum,
-        p_due_month: dueFirst,
-      })
-      if (error) throw error
-
-      if (prof?.auth_user_id) {
-        const { error: linkErr } = await supabase
-          .from('birthday_rounds')
-          .update({ profile_id: profileId })
-          .eq('auth_user_id', prof.auth_user_id)
-          .eq('due_month', dueFirst)
-          .eq('settled_stammtisch_id', idNum)
-        if (linkErr) throw linkErr
-        const { error: firstDueErr } = await supabase
-          .from('birthday_rounds')
-          .update({ first_due_stammtisch_id: idNum })
-          .eq('auth_user_id', prof.auth_user_id)
-          .eq('due_month', dueFirst)
-          .eq('settled_stammtisch_id', idNum)
-          .is('first_due_stammtisch_id', null)
-        if (firstDueErr) throw firstDueErr
-      } else {
-        const { data: recent, error: recentErr } = await supabase
-          .from('birthday_rounds')
-          .select('id')
-          .eq('settled_stammtisch_id', idNum)
-          .eq('due_month', dueFirst)
-          .is('auth_user_id', null)
-          .is('profile_id', null)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-        if (recentErr) throw recentErr
-        if (recent?.id) {
-          const { error: attachErr } = await supabase
-            .from('birthday_rounds')
-            .update({ profile_id: profileId })
-            .eq('id', recent.id)
-          if (attachErr) throw attachErr
-          const { error: firstDueErr } = await supabase
-            .from('birthday_rounds')
-            .update({ first_due_stammtisch_id: idNum })
-            .eq('id', recent.id)
-            .is('first_due_stammtisch_id', null)
-          if (firstDueErr) throw firstDueErr
-        }
-      }
-
-      await loadDonors()
-      await loadBirthdayRounds()
-      await loadModeration()
-      Alert.alert('Erfasst', 'Geburtstagsrunde wurde verbucht (unverknüpft).')
-    } catch (e: any) {
-      Alert.alert('Fehler', e?.message ?? 'RPC admin_give_unlinked_birthday_round fehlt oder schlug fehl.')
-    }
-  }
-
-  // Extra-Runde (Zeitfenster-Check aus, Admin darf immer)
-  async function giveExtraRound() {
-    if (!Number.isFinite(idNum) || !date) return
-    const { data: sess } = await supabase.auth.getUser()
-    const uid = sess?.user?.id
-    if (!uid && !isAdmin) { Alert.alert('Fehler', 'Nicht eingeloggt.'); return }
-    if (!isAdmin) {
-      if ((attLinked[uid!] || 'declined') !== 'going') {
-        Alert.alert('Hinweis', 'Extra-Runden können nur gegeben werden, wenn du anwesend bist.')
-        return
-      }
-    }
-    try {
-      const dueFirst = firstOfMonth(date)
-      const prof = uid ? profiles.find(p => p.auth_user_id === uid) : null
-      const payload: any = {
-        auth_user_id: uid ?? null,
-        profile_id: prof?.id ?? null,
-        due_month: dueFirst,
-        settled_stammtisch_id: idNum,
-        settled_at: new Date().toISOString(),
-      }
-      const { error } = await supabase.from('birthday_rounds').insert([payload])
-      if (error) throw error
-
-      await loadDonors()
-      await loadBirthdayRounds()
-      if (isAdmin) await loadModeration()
-      Alert.alert('Danke!', 'Runde wurde verbucht.')
-    } catch (e: any) {
-      Alert.alert('Fehler', e?.message ?? 'Konnte Runde nicht verbuchen.')
-    }
-  }
-
-  const Box = ({ children }: { children: React.ReactNode }) => (
-    <View
-      style={{
-        borderRadius: radius.md,
-        backgroundColor: colors.cardBg,
-        borderWidth: 1,
-        borderColor: colors.border,
-        padding: 10,
-        marginTop: 10,
-      }}
-    >
-      {children}
-    </View>
-  )
-
-  const activeProfiles = useMemo(
-    () => profiles.filter(p => p.is_active !== false),
-    [profiles]
-  )
-
-  // nur bestätigte Spender oben anzeigen
-
-  const approvedExtraDonors = useMemo(
-    () => donors.filter(d => !!d.approved_at && d.first_due_stammtisch_id == null),
-    [donors]
-  )
-  const approvedExtraDonors = useMemo(
-    () => donorExtras.filter(d => !!d.approved_at),
-    [donorExtras]
-  )
-
-  // Sichtbarkeiten
+  // Sichtbarkeiten (JETZT nachdem alle benötigten Variablen existieren)
   const showBirthdayBox =
     !loadingRounds &&
     !roundsErr &&
@@ -828,10 +771,20 @@ export default function StammtischEditScreen() {
               {!calendarCollapsed && (
                 <>
                   <Calendar
-                    initialDate={initialDate}
-                    markedDates={marked}
+                    initialDate={date || ymd(new Date())}
+                    markedDates={date ? { [date]: { selected: true } } : undefined}
                     onDayPress={(day) => setDate(day.dateString)}
-                    theme={calendarTheme}
+                    theme={{
+                      backgroundColor: colors.cardBg,
+                      calendarBackground: colors.cardBg,
+                      textSectionTitleColor: colors.text,
+                      dayTextColor: colors.text,
+                      monthTextColor: colors.text,
+                      selectedDayBackgroundColor: colors.gold,
+                      selectedDayTextColor: colors.bg,
+                      todayTextColor: colors.gold,
+                      arrowColor: colors.text,
+                    }}
                     enableSwipeMonths
                   />
                   <View style={{ marginTop: 8 }}>
