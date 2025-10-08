@@ -119,9 +119,9 @@ export default function StammtischEditScreen() {
   const [moderation, setModeration] = useState<Donor[]>([])
   const [loadingModeration, setLoadingModeration] = useState(true)
 
-  // Zeitfenster-Logik ist für Tests deaktiviert (wir prüfen sie unten nicht)
+  // Zeitfenster-Logik (wieder aktiv): erlaubt am Tag D und am Folgetag (bis 23:59:59)
   const isWithinGivingWindow = useMemo(() => {
-    if (!date) return true
+    if (!date) return false
     const eventStart = new Date(date + 'T00:00:00')
     const eventEnd = new Date(eventStart)
     eventEnd.setDate(eventEnd.getDate() + 1)
@@ -253,14 +253,40 @@ export default function StammtischEditScreen() {
         rows = await fetchRounds()
       }
 
-      setDueRounds(rows.filter((r) => !r.approved_at))
+      // ---- Duplikate ausblenden, wenn bereits genehmigt (gleiche Person & effektiver Monatskey im gleichen Jahr) ----
+      const year = date.slice(0, 4)
+      const monthKeyFor = (r: BR) => {
+        const prof =
+          (r.profile_id != null ? profiles.find(p => p.id === r.profile_id) : undefined) ||
+          (r.auth_user_id ? profiles.find(p => p.auth_user_id === r.auth_user_id) : undefined)
+        if (prof?.birthday) {
+          const mm = prof.birthday.slice(5, 7)
+          return `${year}-${mm}` // YYYY-MM
+        }
+        return r.due_month.slice(0, 7)
+      }
+      const idKeyFor = (r: BR) =>
+        r.profile_id != null ? `p:${r.profile_id}` : (r.auth_user_id ? `a:${r.auth_user_id}` : `x:${r.id}`)
+
+      const approvedKeys = new Set(
+        rows
+          .filter(r => !!r.approved_at)
+          .map(r => `${idKeyFor(r)}:${monthKeyFor(r)}`)
+      )
+
+      const unapprovedFiltered = rows
+        .filter(r => !r.approved_at)
+        .filter(r => !approvedKeys.has(`${idKeyFor(r)}:${monthKeyFor(r)}`))
+
+      setDueRounds(unapprovedFiltered)
+      // ---- Ende Duplikat-Filter ----
     } catch (e: any) {
       setRoundsErr(e?.message ?? 'Fehler beim Laden der Geburtstags-Runden.')
       setDueRounds([])
     } finally {
       setLoadingRounds(false)
     }
-  }, [idNum, date])
+  }, [idNum, date, profiles])
 
   // Gegebene Runden dieses Stammtischs (inkl. profile_id & due_month)
   const loadDonors = useCallback(async () => {
@@ -368,9 +394,13 @@ export default function StammtischEditScreen() {
     return `${year}-${birthMM}-01`
   }, [date])
 
-  // „Gegeben“ (linked) – Admin darf Attendance ignorieren
+  // „Gegeben“ (linked) – Admin darf Attendance ignorieren; Zeitfenster-Sperre aktiv
   async function givenCurrentOrOverdue(userId: string, roundId?: number) {
     if (!Number.isFinite(idNum) || !date) return
+    if (!isAdmin && !isWithinGivingWindow) {
+      Alert.alert('Hinweis', 'Runden können nur am Stammtischtag und am Folgetag verbucht werden.')
+      return
+    }
     const attending = (attLinked[userId] || 'declined') === 'going'
     if (!attending && !isAdmin) {
       Alert.alert('Hinweis', 'Runden können nur von anwesenden Mitgliedern gegeben werden.')
@@ -418,9 +448,13 @@ export default function StammtischEditScreen() {
     }
   }
 
-  // „Gegeben“ für unverknüpfte Profile (nur Admin/SU)
+  // „Gegeben“ für unverknüpfte Profile (nur Admin/SU); Zeitfenster-Sperre für Nicht-Admins
   async function givenForUnlinkedProfile(profileId: number) {
     if (!Number.isFinite(idNum) || !date) return
+    if (!isAdmin && !isWithinGivingWindow) {
+      Alert.alert('Hinweis', 'Runden können nur am Stammtischtag und am Folgetag verbucht werden.')
+      return
+    }
     if (!isAdmin) {
       Alert.alert('Nicht erlaubt', 'Nur Admin/Superuser können unverknüpfte Runden verbuchen.')
       return
@@ -489,12 +523,16 @@ export default function StammtischEditScreen() {
     }
   }
 
-  // Extra-Runde (Zeitfenster-Check aus, Admin darf immer)
+  // Extra-Runde – Zeitfenster-Sperre aktiv (Admin darf immer)
   async function giveExtraRound() {
     if (!Number.isFinite(idNum) || !date) return
     const { data: sess } = await supabase.auth.getUser()
     const uid = sess?.user?.id
     if (!uid && !isAdmin) { Alert.alert('Fehler', 'Nicht eingeloggt.'); return }
+    if (!isAdmin && !isWithinGivingWindow) {
+      Alert.alert('Hinweis', 'Extra-Runden können nur am Stammtischtag und am Folgetag gegeben werden.')
+      return
+    }
     if (!isAdmin) {
       if ((attLinked[uid!] || 'declined') !== 'going') {
         Alert.alert('Hinweis', 'Extra-Runden können nur gegeben werden, wenn du anwesend bist.')
@@ -523,6 +561,58 @@ export default function StammtischEditScreen() {
     }
   }
 
+  // Speichern
+  const save = useCallback(async () => {
+    if (!Number.isFinite(idNum)) return
+    setSaving(true)
+    setStatus(null)
+    try {
+      const payload: Partial<Row> = {
+        date: date || null as any, // evtl. NULL zulassen
+        location,
+        notes,
+      }
+      const { error } = await supabase
+        .from('stammtisch')
+        .update(payload)
+        .eq('id', idNum)
+      if (error) throw error
+      setStatus('Gespeichert.')
+    } catch (e: any) {
+      Alert.alert('Fehler', e?.message ?? 'Konnte nicht speichern.')
+    } finally {
+      setSaving(false)
+    }
+  }, [idNum, date, location, notes])
+
+  // Löschen
+  const confirmDelete = useCallback(() => {
+    if (!Number.isFinite(idNum)) return
+    Alert.alert('Löschen?', 'Eintrag wirklich löschen?', [
+      { text: 'Abbrechen', style: 'cancel' },
+      {
+        text: 'Löschen',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setDeleting(true)
+            const { error } = await supabase
+              .from('stammtisch')
+              .delete()
+              .eq('id', idNum)
+            if (error) throw error
+            setStatus('Eintrag gelöscht.')
+            router.back()
+          } catch (e: any) {
+            Alert.alert('Fehler', e?.message ?? 'Löschen fehlgeschlagen.')
+          } finally {
+            setDeleting(false)
+          }
+        }
+      }
+    ])
+  }, [idNum, router])
+
   const Box = ({ children }: { children: React.ReactNode }) => (
     <View
       style={{
@@ -549,7 +639,7 @@ export default function StammtischEditScreen() {
     [donors]
   )
 
-  // --------- Ab hier: Alle Ableitungen, die später in showBirthdayBox verwendet werden ---------
+  // --------- Ab hier: Ableitungen für die Birthday-Box ---------
 
   // Name + Avatar
   const fullName = useMemo(
@@ -570,6 +660,19 @@ export default function StammtischEditScreen() {
   const currentMonth = date ? date.slice(5,7) : ''
   const isBeforeEarliestDue = currentMonthKey !== '' && currentMonthKey < EARLIEST_DUE_MONTH
 
+  // Effektiver Fälligkeits-Monat (YYYY-MM) aus Profilgeburtstag, fallback: r.due_month
+  const effectiveDueMonth = useCallback((r: BR): string => {
+    const year = date ? date.slice(0,4) : String(new Date().getFullYear())
+    const prof =
+      (r.profile_id != null ? profiles.find(p => p.id === r.profile_id) : undefined) ||
+      (r.auth_user_id ? profiles.find(p => p.auth_user_id === r.auth_user_id) : undefined)
+    if (prof?.birthday) {
+      const mm = prof.birthday.slice(5,7)
+      return `${year}-${mm}`
+    }
+    return r.due_month.slice(0,7)
+  }, [profiles, date])
+
   // Geburtstagsliste für den Monat
   const currentMonthBirthdays = useMemo(() => {
     if (!date || isBeforeEarliestDue) return []
@@ -585,22 +688,22 @@ export default function StammtischEditScreen() {
   const openCurrentMap = useMemo(() => {
     const map = new Map<string, BR>()
     for (const r of dueRounds) {
-      if (r.auth_user_id && !r.settled_stammtisch_id && r.due_month.slice(0,7) === currentMonthYYYYMM) {
+      if (r.auth_user_id && !r.settled_stammtisch_id && effectiveDueMonth(r) === currentMonthYYYYMM) {
         map.set(r.auth_user_id, r)
       }
     }
     return map
-  }, [dueRounds, currentMonthYYYYMM])
+  }, [dueRounds, currentMonthYYYYMM, effectiveDueMonth])
 
-  // Überfällig
+  // Überfällig (auf Basis des effektiven Fälligkeits-Monats)
   const overdueRounds = useMemo(() => {
-    return dueRounds.filter(r => r.due_month.slice(0,7) < currentMonthYYYYMM)
-  }, [dueRounds, currentMonthYYYYMM])
+    return dueRounds.filter(r => effectiveDueMonth(r) < currentMonthYYYYMM)
+  }, [dueRounds, currentMonthYYYYMM, effectiveDueMonth])
 
   const dueRoundLookup = useMemo(() => {
     const map = new Map<string, BR>()
     for (const r of dueRounds) {
-      const month = r.due_month.slice(0, 7)
+      const month = effectiveDueMonth(r)
       if (r.auth_user_id) {
         map.set(`auth:${r.auth_user_id}:${month}`, r)
       } else if (r.profile_id != null) {
@@ -608,7 +711,7 @@ export default function StammtischEditScreen() {
       }
     }
     return map
-  }, [dueRounds])
+  }, [dueRounds, effectiveDueMonth])
 
   const resolveDueRound = useCallback(
     (authUserId: string | null, profileId: number | null, monthYYYYMM: string): BR | null => {
@@ -673,7 +776,7 @@ export default function StammtischEditScreen() {
     return map
   }, [donorsPending])
 
-  // Sichtbarkeiten (JETZT nachdem alle benötigten Variablen existieren)
+  // Sichtbarkeiten
   const showBirthdayBox =
     !loadingRounds &&
     !roundsErr &&
@@ -907,7 +1010,7 @@ export default function StammtischEditScreen() {
                       <Text style={type.body}>Keine offenen Runden aus Vormonaten.</Text>
                     ) : (
                       overdueRounds.map(r => {
-                        const month = r.due_month.slice(0,7)
+                        const month = effectiveDueMonth(r) // YYYY-MM
                         const prof = findProfileBy(r.auth_user_id, r.profile_id)
                         const attending = r.auth_user_id ? (attLinked[r.auth_user_id] || 'declined') === 'going' : false
 
@@ -971,7 +1074,7 @@ export default function StammtischEditScreen() {
                               )}
                               <View style={{ flex: 1 }}>
                                 <Text style={type.body}>{prof ? fullName(prof) : (r.auth_user_id ?? 'Unverknüpft')}</Text>
-                                <Text style={type.caption}>fällig: {germanMonthYear(r.due_month)}</Text>
+                                <Text style={type.caption}>fällig: {germanMonthYear(`${month}-01`)}</Text>
                               </View>
                             </View>
 

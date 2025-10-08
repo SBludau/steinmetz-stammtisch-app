@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { View, Text, Image, ScrollView, ActivityIndicator, Pressable } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useFocusEffect } from '@react-navigation/native'
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../src/components/BottomNav'
 import { supabase } from '../../src/lib/supabase'
 import { colors, radius } from '../../src/theme/colors'
@@ -11,21 +12,43 @@ import { type } from '../../src/theme/typography'
 // Types
 // ——————————————————————————————————————————
 type Profile = {
-  auth_user_id: string
+  id: number
+  auth_user_id: string | null
   first_name: string | null
   last_name: string | null
   avatar_url: string | null
 }
-type EventRow = { id: number; date: string }
-type ParticipantRow = { auth_user_id: string; status: 'going' | 'declined' | 'maybe' }
-type DonorRow = { auth_user_id: string; settled_at: string | null }
 
-type Ranked = { auth_user_id: string; value: number }
+type EventRow = { id: number; date: string }
+
+// Teilnehmer-Tabellen (linked & unlinked)
+type ParticipantLinkedRow = { auth_user_id: string; status: 'going' | 'declined' | 'maybe' }
+type ParticipantUnlinkedRow = { profile_id: number; status: 'going' | 'declined' | 'maybe' }
+
+// Runden (Spender)
+type DonorRow = {
+  auth_user_id: string | null
+  profile_id: number | null
+  settled_at: string | null
+  approved_at: string | null
+  settled_stammtisch_id: number | null
+}
+
+// Vereinheitlichte Schlüssel
+type Key = `auth:${string}` | `profile:${number}`
+
+type Ranked = { key: Key; value: number; rank: number }
 
 // ——————————————————————————————————————————
 // Helpers
 // ——————————————————————————————————————————
-const CURRENT_YEAR = new Date().getFullYear()
+const now = new Date()
+const CURRENT_YEAR = now.getFullYear()
+const pad = (n: number) => (n < 10 ? `0${n}` : String(n))
+const todayYMD = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+
+const keyFromAuth = (uid: string): Key => `auth:${uid}`
+const keyFromProfile = (pid: number): Key => `profile:${pid}`
 
 function fullName(p: Profile | undefined): string {
   if (!p) return 'Unbekannt'
@@ -38,6 +61,22 @@ function getPublicAvatarUrl(path: string | null | undefined): string | undefined
   if (!path) return undefined
   const { data } = supabase.storage.from('avatars').getPublicUrl(path)
   return data.publicUrl || undefined
+}
+
+// Gleichstände: alle auf geteilten #1/#2/#3
+function rankTop3(entries: Array<{ key: Key; value: number }>): Ranked[] {
+  if (!entries.length) return []
+  const sorted = [...entries].sort((a, b) => b.value - a.value)
+  const uniqueValues: number[] = []
+  for (const e of sorted) {
+    if (!uniqueValues.includes(e.value)) uniqueValues.push(e.value)
+    if (uniqueValues.length >= 3) break
+  }
+  const allowed = new Set(uniqueValues)
+  const withRank: Ranked[] = sorted
+    .filter(e => allowed.has(e.value))
+    .map(e => ({ ...e, rank: uniqueValues.indexOf(e.value) + 1 }))
+  return withRank
 }
 
 // Kleine Bausteine
@@ -121,14 +160,14 @@ function YearChips({
             key={y}
             onPress={() => onChange(y)}
             style={{
-              flex: 1,                            // <<< nimmt 1/3 Breite
+              flex: 1,
               paddingVertical: 10,
               borderRadius: radius.md,
               borderWidth: 1,
               borderColor: active ? colors.gold : colors.border,
               backgroundColor: active ? '#2a2a2a' : '#0d0d0d',
-              marginRight: isLast ? 0 : 8,        // Abstand nur zwischen den Chips
-              alignItems: 'center',               // Text zentriert
+              marginRight: isLast ? 0 : 8,
+              alignItems: 'center',
               justifyContent: 'center',
             }}
           >
@@ -152,60 +191,115 @@ export default function StatsScreen() {
   const [error, setError] = useState<string | null>(null)
 
   const [events, setEvents] = useState<EventRow[]>([])
-  const [participantsByEvent, setParticipantsByEvent] = useState<Record<number, ParticipantRow[]>>({})
+  // Für jede Event-ID: Set der Keys (auth:.. / profile:..) mit status 'going'
+  const [goingKeysByEvent, setGoingKeysByEvent] = useState<Record<number, Set<Key>>>({})
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [donors, setDonors] = useState<DonorRow[]>([])
-  const [fallbackAvatars, setFallbackAvatars] = useState<Record<string, string>>({}) // Google-Fallback
+  const [fallbackAvatars, setFallbackAvatars] = useState<Record<string, string>>({}) // Google-Fallback für auth-User
 
   // nur aktuelles Jahr und die letzten zwei
   const years = useMemo(() => [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2], [])
 
-  const avatarFor = (uid: string | undefined) => {
-    if (!uid) return undefined
-    const p = profileById[uid]
-    return getPublicAvatarUrl(p?.avatar_url) || fallbackAvatars[uid]
+  // Grenzen: bis heute (für aktuelles Jahr) sonst bis 31.12.
+  const startDate = useMemo(() => `${selectedYear}-01-01`, [selectedYear])
+  const endDate = useMemo(
+    () => (selectedYear === CURRENT_YEAR ? todayYMD : `${selectedYear}-12-31`),
+    [selectedYear]
+  )
+
+  // zusätzlich: UTC-zeitbasierte Grenzen für approved_at (halb-offen)
+  const startApprovedInclusive = useMemo(() => `${startDate}T00:00:00Z`, [startDate])
+  const endApprovedExclusive = useMemo(() => {
+    if (selectedYear === CURRENT_YEAR) {
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) // morgen (lokal), JS erzeugt UTC-ISO
+      // auf YYYY-MM-DDT00:00:00Z normalisieren
+      const y = next.getUTCFullYear()
+      const m = pad(next.getUTCMonth() + 1)
+      const d = pad(next.getUTCDate())
+      return `${y}-${m}-${d}T00:00:00Z`
+    } else {
+      // 01.01.(Jahr+1) 00:00Z
+      return `${selectedYear + 1}-01-01T00:00:00Z`
+    }
+  }, [selectedYear])
+
+  // Profile-Maps
+  const profileByKey = useMemo(() => {
+    const map: Record<Key, Profile> = {}
+    for (const p of profiles) {
+      if (p.auth_user_id) map[keyFromAuth(p.auth_user_id)] = p
+      map[keyFromProfile(p.id)] = p
+    }
+    return map
+  }, [profiles])
+
+  const avatarForKey = (key: Key | undefined) => {
+    if (!key) return undefined
+    const p = profileByKey[key]
+    if (key.startsWith('auth:')) {
+      const uid = key.slice(5)
+      return getPublicAvatarUrl(p?.avatar_url) || fallbackAvatars[uid]
+    }
+    return getPublicAvatarUrl(p?.avatar_url)
   }
+
+  const nameForKey = (key: Key | undefined) => fullName(key ? profileByKey[key] : undefined)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      // 1) Events im gewählten Jahr
-      const start = `${selectedYear}-01-01`
-      const end = `${selectedYear}-12-31`
+      // 1) Events im gewählten Jahr – NUR bis endDate (heute bei aktuellem Jahr)
       const { data: eventsData, error: e1 } = await supabase
         .from('stammtisch')
         .select('id,date')
-        .gte('date', start)
-        .lte('date', end)
+        .gte('date', startDate)
+        .lte('date', endDate) // keine zukünftigen Stammtische
         .order('date', { ascending: true })
       if (e1) throw e1
       const evs = (eventsData ?? []) as EventRow[]
       setEvents(evs)
 
-      // 2) Teilnehmer je Event
-      const byEvent: Record<number, ParticipantRow[]> = {}
+      // 2) Teilnehmer je Event – *linked* und *unlinked* zusammenführen
+      const byEvent: Record<number, Set<Key>> = {}
       for (const ev of evs) {
-        const { data, error } = await supabase
+        const goingSet: Set<Key> = new Set()
+
+        // linked
+        const { data: linked, error: errL } = await supabase
           .from('stammtisch_participants')
           .select('auth_user_id,status')
           .eq('stammtisch_id', ev.id)
-        if (error) throw error
-        byEvent[ev.id] = (data ?? []) as ParticipantRow[]
+        if (errL) throw errL
+        for (const row of (linked ?? []) as ParticipantLinkedRow[]) {
+          if (row.status === 'going') goingSet.add(keyFromAuth(row.auth_user_id))
+        }
+
+        // unlinked
+        const { data: unlinked, error: errU } = await supabase
+          .from('stammtisch_participants_unlinked')
+          .select('profile_id,status')
+          .eq('stammtisch_id', ev.id)
+        if (errU) throw errU
+        for (const row of (unlinked ?? []) as ParticipantUnlinkedRow[]) {
+          if (row.status === 'going') goingSet.add(keyFromProfile(row.profile_id))
+        }
+
+        byEvent[ev.id] = goingSet
       }
-      setParticipantsByEvent(byEvent)
+      setGoingKeysByEvent(byEvent)
 
       // 3) Profiles (für Namen + Avatare)
       const { data: profData, error: e2 } = await supabase
         .from('profiles')
-        .select('auth_user_id,first_name,last_name,avatar_url')
+        .select('id,auth_user_id,first_name,last_name,avatar_url')
       if (e2) throw e2
       const profs = (profData ?? []) as Profile[]
       setProfiles(profs)
 
-      // 3b) Google-Avatar-Fallback via RPC (optional)
+      // 3b) Google-Avatar-Fallback via RPC (optional – nur für auth_user_id)
       try {
-        const userIds = profs.map(p => p.auth_user_id)
+        const userIds = profs.map(p => p.auth_user_id).filter(Boolean) as string[]
         if (userIds.length) {
           const { data: fb, error: fbErr } = await supabase.rpc('public_get_google_avatars', { p_user_ids: userIds })
           if (!fbErr && Array.isArray(fb)) {
@@ -220,62 +314,58 @@ export default function StatsScreen() {
         // RPC existiert nicht -> ignorieren
       }
 
-      // 4) Donors (gewähltes Jahr, settled)
+      // 4) Spender-Runden (nur bestätigte), nach approved_at in [startInclusive, endExclusive)
       const { data: donorData, error: e3 } = await supabase
         .from('birthday_rounds')
-        .select('auth_user_id,settled_at')
-        .not('settled_at', 'is', null)
-        .gte('settled_at', start)
-        .lte('settled_at', end)
+        .select('auth_user_id,profile_id,settled_at,approved_at,settled_stammtisch_id')
+        .not('approved_at', 'is', null)
+        .gte('approved_at', startApprovedInclusive)
+        .lt('approved_at', endApprovedExclusive) // <<< Halb-offen: bis *morgen 00:00Z* im aktuellen Jahr
       if (e3) throw e3
+
       setDonors((donorData ?? []) as DonorRow[])
     } catch (e: any) {
       setError(e.message || 'Fehler beim Laden')
     } finally {
       setLoading(false)
     }
-  }, [selectedYear])
+  }, [startDate, endDate, startApprovedInclusive, endApprovedExclusive])
 
+  // initial + wenn Jahr wechselt
   useEffect(() => {
     load()
   }, [load])
 
-  // Profile-Map
-  const profileById = useMemo(() => {
-    const map: Record<string, Profile> = {}
-    for (const p of profiles) map[p.auth_user_id] = p
-    return map
-  }, [profiles])
+  // bei jedem Öffnen den Screen neu laden
+  useFocusEffect(
+    useCallback(() => {
+      load()
+    }, [load])
+  )
 
-  // ——— 1) Top 5 Teilnahmen (status = going) ———
-  const top5Teilnahmen: Ranked[] = useMemo(() => {
-    const counts: Record<string, number> = {}
+  // ——— 1) Top Teilnahmen (status = going) ———
+  const topTeilnahmenRanked: Ranked[] = useMemo(() => {
+    const counts: Record<Key, number> = {}
     for (const ev of events) {
-      const list = participantsByEvent[ev.id] || []
-      for (const row of list) {
-        if (row.status === 'going') counts[row.auth_user_id] = (counts[row.auth_user_id] || 0) + 1
-      }
+      const set = goingKeysByEvent[ev.id] || new Set<Key>()
+      for (const k of set) counts[k] = (counts[k] || 0) + 1
     }
-    return Object.entries(counts)
-      .map(([auth_user_id, value]) => ({ auth_user_id, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5)
-  }, [events, participantsByEvent])
+    const entries = Object.entries(counts).map(([k, v]) => ({ key: k as Key, value: v }))
+    return rankTop3(entries)
+  }, [events, goingKeysByEvent])
 
-  // ——— 2) Top 5 längste Serien ———
-  const top5Streaks: Ranked[] = useMemo(() => {
-    const users = new Set<string>()
+  // ——— 2) Längste Serien ———
+  const topStreaksRanked: Ranked[] = useMemo(() => {
+    const keysAll = new Set<Key>()
     for (const ev of events) {
-      for (const p of (participantsByEvent[ev.id] || [])) users.add(p.auth_user_id)
+      for (const k of (goingKeysByEvent[ev.id] || new Set<Key>())) keysAll.add(k)
     }
-    const streaks: Ranked[] = []
-
-    users.forEach(uid => {
+    const streaks: Array<{ key: Key; value: number }> = []
+    keysAll.forEach(k => {
       let best = 0
       let cur = 0
       for (const ev of events) {
-        const list = participantsByEvent[ev.id] || []
-        const going = list.some(p => p.auth_user_id === uid && p.status === 'going')
+        const going = (goingKeysByEvent[ev.id] || new Set<Key>()).has(k)
         if (going) {
           cur += 1
           if (cur > best) best = cur
@@ -283,23 +373,24 @@ export default function StatsScreen() {
           cur = 0
         }
       }
-      if (best > 0) streaks.push({ auth_user_id: uid, value: best })
+      if (best > 0) streaks.push({ key: k, value: best })
     })
+    return rankTop3(streaks)
+  }, [events, goingKeysByEvent])
 
-    return streaks.sort((a, b) => b.value - a.value).slice(0, 5)
-  }, [events, participantsByEvent])
-
-  // ——— 3) Top 5 Spender ———
-  const top5Spender: Ranked[] = useMemo(() => {
-    const counts: Record<string, number> = {}
+  // ——— 3) Spender (nur bestätigte Runden, gezählt nach approved_at bis inkl. heute) ———
+  const topSpenderRanked: Ranked[] = useMemo(() => {
+    const counts: Record<Key, number> = {}
     for (const d of donors) {
-      if (!d.settled_at) continue
-      counts[d.auth_user_id] = (counts[d.auth_user_id] || 0) + 1
+      if (!d.approved_at) continue
+      const k: Key | null =
+        d.auth_user_id ? keyFromAuth(d.auth_user_id)
+        : (d.profile_id != null ? keyFromProfile(d.profile_id) : null)
+      if (!k) continue
+      counts[k] = (counts[k] || 0) + 1
     }
-    return Object.entries(counts)
-      .map(([auth_user_id, value]) => ({ auth_user_id, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5)
+    const entries = Object.entries(counts).map(([k, v]) => ({ key: k as Key, value: v }))
+    return rankTop3(entries)
   }, [donors])
 
   // Renderer
@@ -308,13 +399,12 @@ export default function StatsScreen() {
     return (
       <View>
         {list.map((row, idx) => {
-          const prof = profileById[row.auth_user_id]
           return (
             <PersonRow
-              key={row.auth_user_id}
-              rank={idx + 1}
-              name={fullName(prof)}
-              avatar={avatarFor(row.auth_user_id)}
+              key={`${row.key}-${idx}`}
+              rank={row.rank}
+              name={nameForKey(row.key)}
+              avatar={avatarForKey(row.key)}
               detail={`${row.value} ${unit}`}
             />
           )
@@ -334,7 +424,7 @@ export default function StatsScreen() {
       >
         <Text style={type.h1}>Statistiken</Text>
 
-        {/* Jahr-Auswahl (Chips) – jetzt volle Breite */}
+        {/* Jahr-Auswahl (Chips) – volle Breite */}
         <View
           style={{
             marginTop: 8,
@@ -343,10 +433,11 @@ export default function StatsScreen() {
             borderRadius: radius.md,
             padding: 8,
             backgroundColor: '#0d0d0d',
-            width: '100%',                 // <<< volle Breite
+            width: '100%',
           }}
         >
           <YearChips years={years} value={selectedYear} onChange={setSelectedYear} />
+          
         </View>
 
         {loading ? (
@@ -364,9 +455,9 @@ export default function StatsScreen() {
               <Header
                 emoji="🏆"
                 title="Beharrlichkeit führt zum Ziel"
-                subtitle={`Top 5 – Teilnehmer am Stammtisch im Jahr ${selectedYear}`}
+                subtitle={`Teilnahmen im Jahr ${selectedYear}`}
               />
-              {renderList(top5Teilnahmen, 'Teilnahmen', 'Noch keine Daten für dieses Jahr.')}
+              {renderList(topTeilnahmenRanked, 'Teilnahmen', 'Noch keine Daten für diesen Zeitraum.')}
             </Box>
 
             <View style={{ height: 12 }} />
@@ -375,9 +466,9 @@ export default function StatsScreen() {
               <Header
                 emoji="🔥"
                 title="Serien-Trinker"
-                subtitle={`Top 5 – der längsten Anwesenheitsserien im Jahr ${selectedYear}`}
+                subtitle={`Längste Anwesenheitsserien im Jahr ${selectedYear}`}
               />
-              {renderList(top5Streaks, 'x in Folge', 'Noch keine Serien gefunden.')}
+              {renderList(topStreaksRanked, 'x in Folge', 'Noch keine Serien gefunden.')}
             </Box>
 
             <View style={{ height: 12 }} />
@@ -386,9 +477,9 @@ export default function StatsScreen() {
               <Header
                 emoji="🍻"
                 title="Schankwirtschafts-Runden"
-                subtitle={`Top 5 – großzügigste Spender im Jahr ${selectedYear}`}
+                subtitle={`Großzügigste Spender im Jahr ${selectedYear}`}
               />
-              {renderList(top5Spender, 'Runden', 'Noch keine Runden verbucht.')}
+              {renderList(topSpenderRanked, 'Runden', 'Noch keine bestätigten Runden verbucht.')}
             </Box>
           </View>
         )}
