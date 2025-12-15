@@ -1,6 +1,6 @@
 // app/admin/users.tsx
 import { useEffect, useState } from 'react'
-import { View, Text, Image, ScrollView, Button, ActivityIndicator, Alert, Platform } from 'react-native'
+import { View, Text, Image, ScrollView, Button, ActivityIndicator, Alert, Platform, Pressable } from 'react-native'
 import { Picker } from '@react-native-picker/picker'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -304,6 +304,46 @@ export default function AdminUsersScreen() {
     )
   }
 
+  // ——— Android-Only: JS-Fallback für die Rollen-Auswahl (vermeidet den RNCA…DialogPicker-Crash) ———
+  function AndroidRoleSelector({
+    value,
+    onChange,
+    enabled,
+  }: {
+    value: Role
+    onChange: (r: Role) => void
+    enabled: boolean
+  }) {
+    const opts: Role[] = ['member', 'superuser', 'admin']
+    return (
+      <View style={{ flexDirection: 'row', gap: 8, padding: 8 }}>
+        {opts.map((opt) => {
+          const active = opt === value
+          return (
+            <Pressable
+              key={opt}
+              disabled={!enabled}
+              onPress={() => onChange(opt)}
+              style={{
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: active ? colors.gold : colors.border,
+                backgroundColor: active ? '#2a2a2a' : '#0d0d0d',
+                opacity: enabled ? 1 : 0.6,
+              }}
+            >
+              <Text style={type.body}>
+                {opt === 'member' ? 'DAU (member)' : opt === 'superuser' ? 'SuperUser' : 'Admin'}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+    )
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView
@@ -372,16 +412,24 @@ export default function AdminUsersScreen() {
                     overflow: 'hidden', backgroundColor: '#0d0d0d', opacity: isAdmin ? 1 : 0.6
                   }}
                 >
-                  <Picker
-                    enabled={isAdmin}
-                    selectedValue={(p.role ?? 'member') as Role}
-                    onValueChange={(v) => onChangeRole(p, v as Role)}
-                    dropdownIconColor={colors.text}
-                  >
-                    <Picker.Item label="DAU (member)" value="member" />
-                    <Picker.Item label="SuperUser" value="superuser" />
-                    <Picker.Item label="Admin" value="admin" />
-                  </Picker>
+                  {Platform.OS === 'android' ? (
+                    <AndroidRoleSelector
+                      value={(p.role ?? 'member') as Role}
+                      onChange={(v) => onChangeRole(p, v as Role)}
+                      enabled={isAdmin}
+                    />
+                  ) : (
+                    <Picker
+                      enabled={isAdmin}
+                      selectedValue={(p.role ?? 'member') as Role}
+                      onValueChange={(v) => onChangeRole(p, v as Role)}
+                      dropdownIconColor={colors.text}
+                    >
+                      <Picker.Item label="DAU (member)" value="member" />
+                      <Picker.Item label="SuperUser" value="superuser" />
+                      <Picker.Item label="Admin" value="admin" />
+                    </Picker>
+                  )}
                 </View>
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
