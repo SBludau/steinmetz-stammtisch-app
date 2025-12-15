@@ -1,6 +1,6 @@
 // app/(tabs)/index.tsx
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { View, Text, Image, Pressable, ScrollView } from 'react-native'
+import { View, Text, Image, Pressable, ScrollView, TextInput, Alert } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -84,12 +84,17 @@ export default function HomeScreen() {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming')
 
   // Profile + Google-Fallback-Avatare
-  const [profiles, setProfiles] = useState<Profile[] | null>(null)
+  const [profiles, setProfiles] = useState<Profile[]>([])
   const [fallbackAvatars, setFallbackAvatars] = useState<Record<string, string>>({})
 
   // (NEU) Vegas-Settings (aus DB)
   const [vegasStartAmount, setVegasStartAmount] = useState<number>(1500)
   const [vegasStartDate, setVegasStartDate] = useState<string>('2025-08-01')
+
+  // State für Vegas-Rechner
+  const [predMonth, setPredMonth] = useState('')
+  const [predYear, setPredYear] = useState('')
+  const [vegasCollapsed, setVegasCollapsed] = useState(true)
 
   // Session prüfen
   useFocusEffect(
@@ -287,6 +292,28 @@ export default function HomeScreen() {
     return vegasStartAmount + inflow
   }, [vegasStartAmount, standingCount, monthsPassed])
   const euro = (n: number) => n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })
+
+  // Rechner-Funktion
+  const calcFuture = () => {
+    const m = parseInt(predMonth)
+    const y = parseInt(predYear)
+    if (!m || !y || m < 1 || m > 12 || y < 2020) {
+      Alert.alert('Bitte Datum prüfen', 'Gültigen Monat (1-12) und Jahr eingeben.')
+      return
+    }
+    const futureDateStr = `${y}-${String(m).padStart(2, '0')}-01`
+    const monthsFuture = countFirstsSince(vegasStartDate, futureDateStr)
+    const inflow = standingCount * monthsFuture * 20
+    const total = vegasStartAmount + inflow
+    
+    // Monatsname ermitteln
+    const monthName = new Date(y, m - 1).toLocaleString('de-DE', { month: 'long' })
+    
+    Alert.alert(
+      'Vegas Prognose',
+      `Im Monat ${monthName} im Jahr ${y} werden wir vermutlich ${euro(total)} Kohle zur Verfügung haben.`
+    )
+  }
 
   // Bei jedem Focus alles frisch laden
   useFocusEffect(
@@ -488,8 +515,9 @@ export default function HomeScreen() {
           </SectionBox>
         )}
 
-        {/* Vegas Counter */}
-        <View
+        {/* Vegas Counter (Collapsible) */}
+        <Pressable
+          onPress={() => setVegasCollapsed(!vegasCollapsed)}
           style={{
             marginTop: 12,
             borderRadius: radius.md,
@@ -497,17 +525,78 @@ export default function HomeScreen() {
             borderWidth: 1,
             borderColor: colors.border,
             padding: 12,
-            gap: 4,
           }}
         >
-          <Text style={type.h2}>Vegas Counter</Text>
-          <Text style={{ ...type.body, fontWeight: '700', fontSize: 20 }}>
-            { vegasTotal.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }) }
-          </Text>
-          <Text style={type.caption}>
-            Startbetrag am {germanDate(vegasStartDate)}: {euro(vegasStartAmount)} + {monthsPassed} Monate mit {standingCount} Mitgliedern mit Dauerauftrag à 20 €
-          </Text>
-        </View>
+          {/* Header Row (Always visible) */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ ...type.h2, fontSize: 18 }}>
+              Vegas Counter: <Text style={{ color: colors.gold }}>{euro(vegasTotal)}</Text>
+            </Text>
+            <Text style={{ fontSize: 24 }}>💸</Text>
+          </View>
+
+          {/* Expanded Content */}
+          {!vegasCollapsed && (
+            <View style={{ marginTop: 12 }}>
+              <Text style={type.caption}>
+                Startbetrag am {germanDate(vegasStartDate)}: {euro(vegasStartAmount)} + {monthsPassed} Monate mit {standingCount} Mitgliedern mit Dauerauftrag à 20 €
+              </Text>
+              
+              <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 12 }} />
+              
+              <Text style={type.h2}>Prognose</Text>
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 4 }}>
+                <TextInput
+                  placeholder="Monat"
+                  placeholderTextColor="#666"
+                  keyboardType="numeric"
+                  maxLength={2}
+                  value={predMonth}
+                  onChangeText={setPredMonth}
+                  style={{
+                    flex: 1,
+                    backgroundColor: colors.bg,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.sm,
+                    padding: 10,
+                    color: colors.text,
+                    textAlign: 'center'
+                  }}
+                />
+                <TextInput
+                  placeholder="Jahr"
+                  placeholderTextColor="#666"
+                  keyboardType="numeric"
+                  maxLength={4}
+                  value={predYear}
+                  onChangeText={setPredYear}
+                  style={{
+                    flex: 1,
+                    backgroundColor: colors.bg,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.sm,
+                    padding: 10,
+                    color: colors.text,
+                    textAlign: 'center'
+                  }}
+                />
+                <Pressable
+                  onPress={calcFuture}
+                  style={{
+                    backgroundColor: colors.gold,
+                    paddingVertical: 10,
+                    paddingHorizontal: 16,
+                    borderRadius: radius.sm,
+                  }}
+                >
+                  <Text style={{ ...type.body, color: colors.bg, fontWeight: 'bold' }}>Sach an!</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+        </Pressable>
       </ScrollView>
 
       <BottomNav />
