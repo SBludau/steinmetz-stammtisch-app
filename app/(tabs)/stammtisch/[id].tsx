@@ -293,21 +293,49 @@ export default function StammtischEditScreen() {
     setLoadingDonors(true)
     try {
       if (!Number.isFinite(idNum)) { setDonors([]); return }
-      const { data, error } = await supabase
+
+      // 1. Geburtstagsrunden
+      const { data: bData, error: bErr } = await supabase
         .from('birthday_rounds')
         .select('id, auth_user_id, profile_id, due_month, first_due_stammtisch_id, settled_stammtisch_id, settled_at, approved_at')
         .eq('settled_stammtisch_id', idNum)
-        .order('settled_at', { ascending: true })
-      if (error) throw error
-      setDonors(((data ?? []) as any[]).map(d => ({
-        id: d.id as number,
+
+      if (bErr) throw bErr
+
+      // 2. Edle Spender Runden
+      const { data: sData, error: sErr } = await supabase
+        .from('spender_rounds')
+        .select('id, auth_user_id, profile_id, stammtisch_id, created_at, approved_at')
+        .eq('stammtisch_id', idNum)
+
+      if (sErr) throw sErr
+
+      const bMapped = (bData ?? []).map(d => ({
+        id: d.id,
         auth_user_id: (d.auth_user_id ?? null) as string | null,
         profile_id: (d.profile_id ?? null) as number | null,
         due_month: (d.due_month ?? null) as string | null,
         first_due_stammtisch_id: (d.first_due_stammtisch_id ?? null) as number | null,
         settled_at: d.settled_at as string | null,
         approved_at: d.approved_at as string | null,
-      })))
+      }))
+
+      const sMapped = (sData ?? []).map(d => ({
+        id: d.id,
+        auth_user_id: (d.auth_user_id ?? null) as string | null,
+        profile_id: (d.profile_id ?? null) as number | null,
+        due_month: null,
+        first_due_stammtisch_id: null, // Kennzeichnung für Spender-Runde
+        settled_stammtisch_id: d.stammtisch_id,
+        settled_at: d.created_at, // create_at ist hier settled_at
+        approved_at: d.approved_at as string | null,
+      }))
+
+      const combined = [...bMapped, ...sMapped].sort((a, b) =>
+        (a.settled_at || '').localeCompare(b.settled_at || '')
+      )
+
+      setDonors(combined)
     } catch {
       setDonors([])
     } finally {
@@ -320,20 +348,46 @@ export default function StammtischEditScreen() {
     setLoadingModeration(true)
     try {
       if (!Number.isFinite(idNum)) { setModeration([]); return }
-      const { data, error } = await supabase
+
+      // 1. Geburtstagsrunden
+      const { data: bData, error: bErr } = await supabase
         .from('birthday_rounds')
-        .select('id, auth_user_id, profile_id, due_month, settled_at, approved_at')
+        .select('id, auth_user_id, profile_id, due_month, first_due_stammtisch_id, settled_at, approved_at')
         .eq('settled_stammtisch_id', idNum)
-        .order('settled_at', { ascending: false })
-      if (error) throw error
-      setModeration(((data ?? []) as any[]).map(d => ({
-        id: d.id as number,
+      if (bErr) throw bErr
+
+      // 2. Edle Spender Runden
+      const { data: sData, error: sErr } = await supabase
+        .from('spender_rounds')
+        .select('id, auth_user_id, profile_id, stammtisch_id, created_at, approved_at')
+        .eq('stammtisch_id', idNum)
+      if (sErr) throw sErr
+
+      const bMapped = (bData ?? []).map(d => ({
+        id: d.id,
         auth_user_id: (d.auth_user_id ?? null) as string | null,
         profile_id: (d.profile_id ?? null) as number | null,
         due_month: (d.due_month ?? null) as string | null,
+        first_due_stammtisch_id: (d.first_due_stammtisch_id ?? null) as number | null,
         settled_at: d.settled_at as string | null,
         approved_at: d.approved_at as string | null,
-      })))
+      }))
+
+      const sMapped = (sData ?? []).map(d => ({
+        id: d.id,
+        auth_user_id: (d.auth_user_id ?? null) as string | null,
+        profile_id: (d.profile_id ?? null) as number | null,
+        due_month: null,
+        first_due_stammtisch_id: null,
+        settled_at: d.created_at,
+        approved_at: d.approved_at as string | null,
+      }))
+
+      const combined = [...bMapped, ...sMapped].sort((a, b) =>
+        (b.settled_at || '').localeCompare(a.settled_at || '')
+      )
+
+      setModeration(combined)
     } catch {
       setModeration([])
     } finally {
@@ -540,16 +594,14 @@ export default function StammtischEditScreen() {
       }
     }
     try {
-      const dueFirst = firstOfMonth(date) // Extra-Runde bleibt beim Stammtisch-Monat
       const prof = uid ? profiles.find(p => p.auth_user_id === uid) : null
       const payload: any = {
         auth_user_id: uid ?? null,
         profile_id: prof?.id ?? null,
-        due_month: dueFirst,
-        settled_stammtisch_id: idNum,
-        settled_at: new Date().toISOString(),
+        stammtisch_id: idNum,
+        // created_at ist automatisch settled_at-Ersatz in der Tabelle
       }
-      const { error } = await supabase.from('birthday_rounds').insert([payload])
+      const { error } = await supabase.from('spender_rounds').insert([payload])
       if (error) throw error
 
       await loadDonors()
@@ -1357,8 +1409,18 @@ export default function StammtischEditScreen() {
                               <Pressable
                                 onPress={async () => {
                                   try {
-                                    const { error } = await supabase.rpc('admin_approve_round', { p_id: r.id })
-                                    if (error) throw error
+                                    if (r.first_due_stammtisch_id == null) {
+                                      // Edle Spender Runde bestätigen
+                                      const { data: u } = await supabase.auth.getUser()
+                                      const { error } = await supabase.from('spender_rounds')
+                                        .update({ approved_at: new Date().toISOString(), approved_by: u.user?.id })
+                                        .eq('id', r.id)
+                                      if (error) throw error
+                                    } else {
+                                      // Geburtstagsrunde bestätigen
+                                      const { error } = await supabase.rpc('admin_approve_round', { p_id: r.id })
+                                      if (error) throw error
+                                    }
                                     await loadDonors()
                                     await loadBirthdayRounds()
                                     await loadModeration()
@@ -1388,8 +1450,15 @@ export default function StammtischEditScreen() {
                                   {
                                     text: 'Löschen', style: 'destructive', onPress: async () => {
                                       try {
-                                        const { error } = await supabase.rpc('admin_delete_round', { p_id: r.id })
-                                        if (error) throw error
+                                        if (r.first_due_stammtisch_id == null) {
+                                          // Edle Spender Runde löschen
+                                          const { error } = await supabase.from('spender_rounds').delete().eq('id', r.id)
+                                          if (error) throw error
+                                        } else {
+                                          // Geburtstagsrunde löschen
+                                          const { error } = await supabase.rpc('admin_delete_round', { p_id: r.id })
+                                          if (error) throw error
+                                        }
                                         await loadDonors()
                                         await loadBirthdayRounds()
                                         await loadModeration()
@@ -1402,14 +1471,14 @@ export default function StammtischEditScreen() {
                                 ])
                               }}
                               style={{
-                                width: 34,
-                                height: 34,
-                                borderRadius: 10,
-                                borderWidth: 1,
-                                borderColor: colors.border,
-                                backgroundColor: colors.cardBg,
-                                alignItems: 'center',
-                                justifyContent: 'center',
+                                  width: 34,
+                                  height: 34,
+                                  borderRadius: 10,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                  backgroundColor: colors.cardBg,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
                               }}
                             >
                               <Text style={{ color: '#ff6b6b', fontSize: 18 }}>🗑</Text>

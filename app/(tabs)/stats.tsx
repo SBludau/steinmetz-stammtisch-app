@@ -315,15 +315,38 @@ export default function StatsScreen() {
       }
 
       // 4) Spender-Runden (nur bestätigte), nach approved_at in [startInclusive, endExclusive)
-      const { data: donorData, error: e3 } = await supabase
+      //    JETZT: Aus ZWEI Tabellen laden (birthday_rounds & spender_rounds)
+      
+      // A) birthday_rounds
+      const { data: bData, error: bErr } = await supabase
         .from('birthday_rounds')
         .select('auth_user_id,profile_id,settled_at,approved_at,settled_stammtisch_id')
         .not('approved_at', 'is', null)
         .gte('approved_at', startApprovedInclusive)
-        .lt('approved_at', endApprovedExclusive) // <<< Halb-offen: bis *morgen 00:00Z* im aktuellen Jahr
-      if (e3) throw e3
+        .lt('approved_at', endApprovedExclusive)
+      if (bErr) throw bErr
 
-      setDonors((donorData ?? []) as DonorRow[])
+      // B) spender_rounds (neue Tabelle)
+      const { data: sData, error: sErr } = await supabase
+        .from('spender_rounds')
+        .select('auth_user_id,profile_id,created_at,approved_at,stammtisch_id')
+        .not('approved_at', 'is', null)
+        .gte('approved_at', startApprovedInclusive)
+        .lt('approved_at', endApprovedExclusive)
+      if (sErr) throw sErr
+
+      // C) Zusammenführen
+      const bRows = (bData ?? []) as DonorRow[]
+      const sRows = (sData ?? []).map((r: any) => ({
+        auth_user_id: r.auth_user_id,
+        profile_id: r.profile_id,
+        settled_at: r.created_at,         // created_at als settled_at
+        approved_at: r.approved_at,
+        settled_stammtisch_id: r.stammtisch_id // stammtisch_id als settled_stammtisch_id
+      })) as DonorRow[]
+
+      setDonors([...bRows, ...sRows])
+
     } catch (e: any) {
       setError(e.message || 'Fehler beim Laden')
     } finally {
@@ -383,15 +406,28 @@ export default function StatsScreen() {
     const counts: Record<Key, number> = {}
     for (const d of donors) {
       if (!d.approved_at) continue
-      const k: Key | null =
-        d.auth_user_id ? keyFromAuth(d.auth_user_id)
-        : (d.profile_id != null ? keyFromProfile(d.profile_id) : null)
+
+      // Normalisierung: Versuche, das Profil zu finden, um immer den gleichen Key zu nutzen
+      let p: Profile | undefined
+      if (d.profile_id) p = profileByKey[keyFromProfile(d.profile_id)]
+      else if (d.auth_user_id) p = profileByKey[keyFromAuth(d.auth_user_id)]
+
+      let k: Key | null = null
+      
+      // Prio 1: Wenn das Profil eine auth_user_id hat, nimm diese (auch wenn in der Runde nur profile_id steht)
+      if (p?.auth_user_id) k = keyFromAuth(p.auth_user_id)
+      // Prio 2: Wenn das Profil nur eine ID hat (unlinked), nimm diese
+      else if (p) k = keyFromProfile(p.id)
+      // Fallback: Daten aus der Runde nehmen
+      else if (d.auth_user_id) k = keyFromAuth(d.auth_user_id)
+      else if (d.profile_id) k = keyFromProfile(d.profile_id)
+
       if (!k) continue
       counts[k] = (counts[k] || 0) + 1
     }
     const entries = Object.entries(counts).map(([k, v]) => ({ key: k as Key, value: v }))
     return rankTop3(entries)
-  }, [donors])
+  }, [donors, profileByKey])
 
   // Renderer
   const renderList = (list: Ranked[], unit: string, emptyText: string) => {
@@ -437,7 +473,7 @@ export default function StatsScreen() {
           }}
         >
           <YearChips years={years} value={selectedYear} onChange={setSelectedYear} />
-          
+           
         </View>
 
         {loading ? (
