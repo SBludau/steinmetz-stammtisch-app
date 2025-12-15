@@ -1,9 +1,9 @@
 // app/admin/profile/[id].tsx
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { View, Text, TextInput, Image, ScrollView, ActivityIndicator, Switch, Button } from 'react-native'
+import { View, Text, TextInput, Image, ScrollView, ActivityIndicator, Switch, Button, Pressable } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Picker } from '@react-native-picker/picker'
+// Picker entfernt, da er den Absturz verursacht
 import { supabase } from '../../../src/lib/supabase'
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../../src/components/BottomNav'
 import { colors, radius } from '../../../src/theme/colors'
@@ -30,8 +30,14 @@ type ProfileRow = {
 }
 
 export default function AdminProfileEditScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>()
-  const profileId = useMemo(() => (id ? parseInt(id, 10) : NaN), [id])
+  const { id } = useLocalSearchParams() // Generic entfernt, um Typkonflikte zu vermeiden
+  
+  // Sicheres Parsen der ID (String oder Array)
+  const profileId = useMemo(() => {
+    const rawId = Array.isArray(id) ? id[0] : id
+    return rawId ? parseInt(rawId, 10) : NaN
+  }, [id])
+
   const router = useRouter()
   const insets = useSafeAreaInsets()
 
@@ -71,7 +77,7 @@ export default function AdminProfileEditScreen() {
   const load = useCallback(async () => {
     setLoading(true); setError(''); setMessage('')
     try {
-      if (!id || Number.isNaN(profileId)) throw new Error('Ungültige Profil-ID.')
+      if (Number.isNaN(profileId)) throw new Error('Ungültige Profil-ID.')
 
       // aktuelle User-Rolle
       const { data: userData, error: uErr } = await supabase.auth.getUser()
@@ -126,7 +132,7 @@ export default function AdminProfileEditScreen() {
     } finally {
       setLoading(false)
     }
-  }, [id, profileId, router])
+  }, [profileId, router])
 
   useEffect(() => {
     load()
@@ -196,7 +202,8 @@ export default function AdminProfileEditScreen() {
     }
   }
 
-  if (!isAdmin) {
+  // Admin-Check View
+  if (!isAdmin && !loading) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
         <Text style={type.h1}>Admin – Profil bearbeiten</Text>
@@ -210,7 +217,8 @@ export default function AdminProfileEditScreen() {
     )
   }
 
-  if (loading || !row) {
+  // Loading View
+  if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator />
@@ -219,11 +227,46 @@ export default function AdminProfileEditScreen() {
     )
   }
 
+  // Error View (wenn nicht mehr lädt, aber row null ist)
+  if (error && !row) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <Text style={{ ...type.h2, color: colors.red }}>Fehler</Text>
+        <Text style={{ ...type.body, marginTop: 8, textAlign: 'center' }}>{error}</Text>
+        <View style={{ marginTop: 16 }}>
+            <Button title="Zurück" onPress={() => router.back()} />
+        </View>
+      </View>
+    )
+  }
+
+  // Fallback, sollte nicht passieren
+  if (!row) return null
+
   // Verknüpfungsanzeige
   const linkedBadge = row.auth_user_id
     ? (row.self_check ? '✅ verknüpft & bestätigt' : '🔒 verknüpft (ausstehend)')
     : '🟢 unverknüpft'
   const activeBadge = row.is_active ? '🟩 aktiv' : '⬜ inaktiv'
+
+  // Helper für Radio Buttons
+  const SelectionButton = ({ label, active, onPress }: { label: string, active: boolean, onPress: () => void }) => (
+    <Pressable
+      onPress={onPress}
+      style={{
+        flex: 1,
+        paddingVertical: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: active ? colors.gold : colors.border,
+        backgroundColor: active ? '#2a2a2a' : 'transparent',
+        borderRadius: radius.md,
+      }}
+    >
+      <Text style={{ color: active ? colors.gold : colors.text }}>{label}</Text>
+    </Pressable>
+  )
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -338,22 +381,24 @@ export default function AdminProfileEditScreen() {
             }}
           />
 
+          {/* Ersatz für Picker: Akademischer Grad */}
           <Text style={type.h2}>Akademischer Grad</Text>
-          <View
-            style={{
-              borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
-              overflow: 'hidden', backgroundColor: '#0d0d0d'
-            }}
-          >
-            <Picker
-              selectedValue={degree}
-              onValueChange={(v) => setDegree(v as Degree)}
-              dropdownIconColor={colors.text}
-            >
-              <Picker.Item label="— kein akademischer Grad —" value="none" />
-              <Picker.Item label="Dr." value="dr" />
-              <Picker.Item label="Prof." value="prof" />
-            </Picker>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <SelectionButton 
+              label="Kein" 
+              active={degree === 'none'} 
+              onPress={() => setDegree('none')} 
+            />
+            <SelectionButton 
+              label="Dr." 
+              active={degree === 'dr'} 
+              onPress={() => setDegree('dr')} 
+            />
+            <SelectionButton 
+              label="Prof." 
+              active={degree === 'prof'} 
+              onPress={() => setDegree('prof')} 
+            />
           </View>
 
           <Text style={type.h2}>Lebensweisheit</Text>
@@ -395,24 +440,25 @@ export default function AdminProfileEditScreen() {
             <Switch value={standingOrder} onValueChange={setStandingOrder} />
           </View>
 
-          {/* Rolle (optional hier änderbar) */}
+          {/* Rolle (Ersatz für Picker) */}
           <Text style={{ ...type.h2, marginTop: 6 }}>Rolle</Text>
-          <View
-            style={{
-              borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
-              overflow: 'hidden', backgroundColor: '#0d0d0d'
-            }}
-          >
-            <Picker
-              enabled={isAdmin}
-              selectedValue={role}
-              onValueChange={(v) => changeRole(v as Role)}
-              dropdownIconColor={colors.text}
-            >
-              <Picker.Item label="DAU (member)" value="member" />
-              <Picker.Item label="SuperUser" value="superuser" />
-              <Picker.Item label="Admin" value="admin" />
-            </Picker>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+             {/* Wir zeigen die Buttons immer an, aber deaktivieren die Funktion, wenn kein Admin */}
+            <SelectionButton 
+              label="Mitglied" 
+              active={role === 'member'} 
+              onPress={() => isAdmin && changeRole('member')} 
+            />
+            <SelectionButton 
+              label="SuperUser" 
+              active={role === 'superuser'} 
+              onPress={() => isAdmin && changeRole('superuser')} 
+            />
+            <SelectionButton 
+              label="Admin" 
+              active={role === 'admin'} 
+              onPress={() => isAdmin && changeRole('admin')} 
+            />
           </View>
 
           <View style={{ gap: 10, marginTop: 8 }}>
