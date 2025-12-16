@@ -2,7 +2,7 @@
 
 Eine kleine mobile App (Android/iOS/Web) mit **Expo + React Native** und **Supabase** (Auth, DB & Storage).
 Ziel: Stammtische anlegen/anzeigen, Benutzerprofile pflegen (inkl. Avatar), Anmeldung via **Google** oder **E-Mail/Passwort**.
-Anzeige als Webpage oder als Android App
+Anzeige als Webpage (https://stammtisch-app.vercel.app/) oder als Android App
 
 ---
 
@@ -23,6 +23,7 @@ Anzeige als Webpage oder als Android App
 13. [Weiterentwickeln (Workflow & Git)](#weiterentwickeln-workflow--git)
 14. [Sicherheitshinweise](#sicherheitshinweise)
 15. [Nützliche Befehle (Spickzettel)](#nützliche-befehle-spickzettel)
+16. Web Release Infos
 
 ---
 
@@ -428,6 +429,46 @@ npx supabase login
 npx supabase secrets set PROJECT_URL="..." ANON_KEY="..." SERVICE_ROLE_KEY="..."
 npx supabase functions deploy admin-delete-user
 ```
+
+## 🌐 Web Deployment & Vercel Konfiguration
+
+Das Projekt wird automatisch über **Vercel** bereitgestellt, sobald ein Commit auf den `main` Branch gepusht wird.
+
+### Automatischer Workflow
+1. **Code Push:** Änderungen werden auf GitHub in den Branch `main` gepusht.
+2. **Vercel Trigger:** Vercel erkennt den neuen Commit und startet den Build-Prozess.
+3. **Build:** Es wird der Befehl `npm run build:web` ausgeführt (Expo Export).
+4. **Deploy:** Das Ergebnis aus dem Ordner `dist` wird veröffentlicht.
+
+### Wichtige URLs & Supabase Auth
+Für den Google Login (OAuth) ist die korrekte Konfiguration der Redirect-URLs essenziell.
+
+- **Produktions-Domain:** `https://stammtisch-app.vercel.app`
+- **Auth Callback Route:** `https://stammtisch-app.vercel.app/auth-callback`
+
+**⚠️ WICHTIGER HINWEIS:**
+Supabase akzeptiert Redirects nur für URLs, die explizit in der Allow-List stehen.
+In den Supabase Dashboard Einstellungen (**Authentication -> URL Configuration**) muss zwingend die **feste Domain** eingetragen sein:
+
+* **Site URL:** `https://stammtisch-app.vercel.app`
+* **Redirect URLs:** `https://stammtisch-app.vercel.app/**`
+
+**Achtung:** Die dynamischen Preview-URLs, die Vercel bei jedem Pull-Request generiert (z.B. `https://stammtisch-app-git-fork-xyz.vercel.app`), sind **nicht** bei Supabase hinterlegt. Der Google Login funktioniert daher auf diesen Preview-Links nicht! Teste Logins immer auf der Produktions-Domain.
+
+### Technische Dateien
+Damit das Routing im Web (Single Page Application) funktioniert und kein 404-Fehler bei direktem Aufruf von Unterseiten (z.B. `/login` oder `/auth-callback`) entsteht, wird folgende Konfiguration benötigt:
+
+**1. `vercel.json` (im Root)**
+Diese Datei zwingt Vercel dazu, alle Anfragen an die `index.html` weiterzuleiten, damit der Expo Router das Routing übernehmen kann.
+```json
+{
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
 
 **Owner:** @SBludau
 **Projekt:** steinmetz-stammtisch-app
