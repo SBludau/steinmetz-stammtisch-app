@@ -2,6 +2,7 @@
 
 Eine kleine mobile App (Android/iOS/Web) mit **Expo + React Native** und **Supabase** (Auth, DB & Storage).
 Ziel: Stammtische anlegen/anzeigen, Benutzerprofile pflegen (inkl. Avatar), Anmeldung via **Google** oder **E-Mail/Passwort**.
+Anzeige als Webpage oder als Android App
 
 ---
 
