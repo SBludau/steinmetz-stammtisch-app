@@ -10,6 +10,21 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 - Wichtige Tools: Stein–Schere–Papier, Münzwurf und Vegas Counter „Schwarz/Rot“ mit Max-Counter für Stats
 - Google Auth-Login Display überprüfen/vereinheitlichen
 
+## [Web-Release] - 2025-16.12
+
+### Hinzugefügt
+- **Web Deployment:** Die App ist nun als Web-Version unter `https://stammtisch-app.vercel.app` verfügbar.
+- **Vercel Konfiguration:** Datei `vercel.json` hinzugefügt, um Routing-Regeln für Single-Page-Applications (SPA) zu steuern (Rewrite aller Anfragen auf `index.html`).
+- **Auth Callback:** Neue Route `app/auth-callback.tsx` erstellt. Diese Seite fängt den OAuth-Redirect von Google/Supabase ab, extrahiert die Session-Tokens (Access/Refresh Token) aus dem URL-Hash und loggt den User ein.
+- **Plattform-Weiche:** Die Authentifizierungslogik in `auth-callback.tsx` unterscheidet nun strikt zwischen Web (Hash-Parsing) und Native (Deep Linking), um die Android-Funktionalität nicht zu gefährden.
+
+### Geändert
+- **Build Prozess:** `package.json` Script `build:web` wird nun von Vercel genutzt (`expo export -p web`), Output-Directory ist `dist`.
+- **Environment Variables:** Anpassung der Supabase-Initialisierung, um `EXPO_PUBLIC_` Variablen für den Web-Build korrekt zu laden.
+
+### Wichtig für Maintainer
+- Der Google Login im Web funktioniert **nur** über die Haupt-Domain (`stammtisch-app.vercel.app`), da diese explizit in der Supabase Allow-List steht. Dynamische Preview-URLs von Vercel (z.B. `stammtisch-git-main...app`) funktionieren für den Login nicht!
+
 ---
 ## [0.4.1] - 2025-10-08
 
