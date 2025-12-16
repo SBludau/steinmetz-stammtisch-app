@@ -1,6 +1,6 @@
 // app/(tabs)/index.tsx
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { View, Text, Image, Pressable, ScrollView, TextInput, Alert } from 'react-native'
+import { View, Text, Image, Pressable, ScrollView, TextInput, Alert, Platform } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -417,7 +417,13 @@ export default function HomeScreen() {
           <Image
             source={BANNER}
             resizeMode="contain"
-            style={{ width: '100%', maxWidth: 3000, aspectRatio: 3, height: undefined }}
+            style={{ 
+              width: '100%', 
+              maxWidth: 3000, 
+              aspectRatio: 3, 
+              height: undefined, 
+              maxHeight: Platform.OS === 'web' ? 300 : undefined 
+            }}
           />
         </View>
 
