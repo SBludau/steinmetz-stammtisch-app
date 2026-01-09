@@ -240,6 +240,12 @@ export default function StatsScreen() {
       const uid = key.slice(5)
       return getPublicAvatarUrl(p?.avatar_url) || fallbackAvatars[uid]
     }
+    // Wenn wir hier landen, ist es ein reiner Profile-Key (unlinked)
+    // Wenn das Profil aber EIGENTLICH linked ist, sollte es im UI über den auth-key laufen.
+    // Falls doch mal einer hier landet:
+    if (p?.auth_user_id && fallbackAvatars[p.auth_user_id]) {
+      return fallbackAvatars[p.auth_user_id]
+    }
     return getPublicAvatarUrl(p?.avatar_url)
   }
 
@@ -297,7 +303,7 @@ export default function StatsScreen() {
       const profs = (profData ?? []) as Profile[]
       setProfiles(profs)
 
-      // 3b) Google-Avatar-Fallback via RPC (optional – nur für auth_user_id)
+      // 3b) Google-Avatar-Fallback via RPC
       try {
         const userIds = profs.map(p => p.auth_user_id).filter(Boolean) as string[]
         if (userIds.length) {
@@ -314,9 +320,7 @@ export default function StatsScreen() {
         // RPC existiert nicht -> ignorieren
       }
 
-      // 4) Spender-Runden (nur bestätigte), nach approved_at in [startInclusive, endExclusive)
-      //    JETZT: Aus ZWEI Tabellen laden (birthday_rounds & spender_rounds)
-      
+      // 4) Spender-Runden
       // A) birthday_rounds
       const { data: bData, error: bErr } = await supabase
         .from('birthday_rounds')
@@ -326,7 +330,7 @@ export default function StatsScreen() {
         .lt('approved_at', endApprovedExclusive)
       if (bErr) throw bErr
 
-      // B) spender_rounds (neue Tabelle)
+      // B) spender_rounds
       const { data: sData, error: sErr } = await supabase
         .from('spender_rounds')
         .select('auth_user_id,profile_id,created_at,approved_at,stammtisch_id')
@@ -340,9 +344,9 @@ export default function StatsScreen() {
       const sRows = (sData ?? []).map((r: any) => ({
         auth_user_id: r.auth_user_id,
         profile_id: r.profile_id,
-        settled_at: r.created_at,         // created_at als settled_at
+        settled_at: r.created_at,
         approved_at: r.approved_at,
-        settled_stammtisch_id: r.stammtisch_id // stammtisch_id als settled_stammtisch_id
+        settled_stammtisch_id: r.stammtisch_id
       })) as DonorRow[]
 
       setDonors([...bRows, ...sRows])
@@ -354,41 +358,71 @@ export default function StatsScreen() {
     }
   }, [startDate, endDate, startApprovedInclusive, endApprovedExclusive])
 
-  // initial + wenn Jahr wechselt
   useEffect(() => {
     load()
   }, [load])
 
-  // bei jedem Öffnen den Screen neu laden
   useFocusEffect(
     useCallback(() => {
       load()
     }, [load])
   )
 
+  // —————————————————————————————————————————————————————————
+  // FIX: Normalisierung der Keys für die Berechnung
+  // Wenn ein Key "profile:93" ist, das Profil aber inzwischen verknüpft ist ("auth:402..."),
+  // dann rechnen wir es dem Auth-Key zu. Damit verschwinden die Dopplungen.
+  // —————————————————————————————————————————————————————————
+
   // ——— 1) Top Teilnahmen (status = going) ———
   const topTeilnahmenRanked: Ranked[] = useMemo(() => {
     const counts: Record<Key, number> = {}
     for (const ev of events) {
       const set = goingKeysByEvent[ev.id] || new Set<Key>()
-      for (const k of set) counts[k] = (counts[k] || 0) + 1
+      for (const k of set) {
+        // ——— Fix Start: Key normalisieren ———
+        let useKey = k
+        const p = profileByKey[k]
+        // Wenn wir über Profile-Key kommen, aber User ist verknüpft -> nimm Auth-Key
+        if (p?.auth_user_id) {
+          useKey = keyFromAuth(p.auth_user_id)
+        }
+        // ——— Fix End ———
+        counts[useKey] = (counts[useKey] || 0) + 1
+      }
     }
     const entries = Object.entries(counts).map(([k, v]) => ({ key: k as Key, value: v }))
     return rankTop3(entries)
-  }, [events, goingKeysByEvent])
+  }, [events, goingKeysByEvent, profileByKey])
 
   // ——— 2) Längste Serien ———
   const topStreaksRanked: Ranked[] = useMemo(() => {
-    const keysAll = new Set<Key>()
+    // Zuerst bauen wir eine "saubere" Map pro Event, wo nur normalisierte Keys drin sind
+    const normalizedEvents: Record<number, Set<Key>> = {}
+    
     for (const ev of events) {
-      for (const k of (goingKeysByEvent[ev.id] || new Set<Key>())) keysAll.add(k)
+        const rawSet = goingKeysByEvent[ev.id] || new Set<Key>()
+        const normSet = new Set<Key>()
+        for (const k of rawSet) {
+            let final = k
+            const p = profileByKey[k]
+            if (p?.auth_user_id) final = keyFromAuth(p.auth_user_id)
+            normSet.add(final)
+        }
+        normalizedEvents[ev.id] = normSet
     }
+
+    // Jetzt Streak berechnen basierend auf normalizedEvents
+    const keysAll = new Set<Key>()
+    Object.values(normalizedEvents).forEach(s => s.forEach(k => keysAll.add(k)))
+
     const streaks: Array<{ key: Key; value: number }> = []
+    
     keysAll.forEach(k => {
       let best = 0
       let cur = 0
       for (const ev of events) {
-        const going = (goingKeysByEvent[ev.id] || new Set<Key>()).has(k)
+        const going = (normalizedEvents[ev.id] || new Set<Key>()).has(k)
         if (going) {
           cur += 1
           if (cur > best) best = cur
@@ -399,15 +433,14 @@ export default function StatsScreen() {
       if (best > 0) streaks.push({ key: k, value: best })
     })
     return rankTop3(streaks)
-  }, [events, goingKeysByEvent])
+  }, [events, goingKeysByEvent, profileByKey])
 
-  // ——— 3) Spender (nur bestätigte Runden, gezählt nach approved_at bis inkl. heute) ———
+  // ——— 3) Spender ———
   const topSpenderRanked: Ranked[] = useMemo(() => {
     const counts: Record<Key, number> = {}
     for (const d of donors) {
       if (!d.approved_at) continue
 
-      // Normalisierung: Versuche, das Profil zu finden, um immer den gleichen Key zu nutzen
       let p: Profile | undefined
       if (d.profile_id) p = profileByKey[keyFromProfile(d.profile_id)]
       else if (d.auth_user_id) p = profileByKey[keyFromAuth(d.auth_user_id)]
@@ -418,7 +451,7 @@ export default function StatsScreen() {
       if (p?.auth_user_id) k = keyFromAuth(p.auth_user_id)
       // Prio 2: Wenn das Profil nur eine ID hat (unlinked), nimm diese
       else if (p) k = keyFromProfile(p.id)
-      // Fallback: Daten aus der Runde nehmen
+      // Fallback
       else if (d.auth_user_id) k = keyFromAuth(d.auth_user_id)
       else if (d.profile_id) k = keyFromProfile(d.profile_id)
 
@@ -473,7 +506,7 @@ export default function StatsScreen() {
           }}
         >
           <YearChips years={years} value={selectedYear} onChange={setSelectedYear} />
-           
+            
         </View>
 
         {loading ? (
