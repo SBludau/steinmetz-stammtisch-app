@@ -10,7 +10,7 @@ import { colors, radius } from '../../src/theme/colors'
 import { type } from '../../src/theme/typography'
 
 // ---- Konfiguration ----
-const BUG_REPORT_URL = 'https://docs.google.com/forms/d/e/DEINE_FORM_ID/viewform' // HIER DEINE GOOGLE FORM URL EINTRAGEN
+const BUG_REPORT_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSeE2_ntS1R4jZXgrWeIZrhS4GRlHZ6rTla18EBQgGjRmc3EhQ/viewform?usp=dialog' // HIER DEINE GOOGLE FORM URL EINTRAGEN
 
 // ---- GitHub Logic & Cache ----
 const GITHUB_REPO = 'SBludau/steinmetz-stammtisch-app'
@@ -36,13 +36,23 @@ const fetchGitHubStats = async (): Promise<string> => {
     const repoData = await repoRes.json()
     const pushedDate = repoData.pushed_at ? repoData.pushed_at.slice(0, 10) : '????-??-??'
 
-    // B) Release (Version)
+    // B) Version ermitteln (Release ODER Tag)
     let version = 'unreleased'
+    // Versuch 1: Latest Release
     try {
       const relRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`)
       if (relRes.ok) {
         const relData = await relRes.json()
         version = relData.tag_name || version
+      } else {
+        // Versuch 2: Tags (wenn kein Release existiert)
+        const tagsRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/tags`)
+        if (tagsRes.ok) {
+          const tagsData = await tagsRes.json()
+          if (Array.isArray(tagsData) && tagsData.length > 0) {
+            version = tagsData[0].name // Der erste Tag ist meist der neueste
+          }
+        }
       }
     } catch { /* Fallback bleibt unreleased */ }
 
@@ -58,8 +68,8 @@ const fetchGitHubStats = async (): Promise<string> => {
       }
     } catch { /* Fallback bleibt 0 */ }
 
-    // 3. String bauen
-    const infoString = `Open Source · ${version} · ${commits} Commits im letzten Jahr · Stand: ${pushedDate}`
+    // 3. String bauen (ohne Käfer, der kommt im UI dazu)
+    const infoString = `Steinmetz Source · ${version} · ${commits} Commits · Stand: ${pushedDate}`
 
     // 4. Cache aktualisieren
     githubCache = {
@@ -74,7 +84,7 @@ const fetchGitHubStats = async (): Promise<string> => {
     if (githubCache.data) {
       return githubCache.data // Alter Cache als Fallback
     }
-    return 'Open Source · GitHub-Daten aktuell nicht verfügbar'
+    return 'Steinmetz Source · GitHub-Daten aktuell nicht verfügbar'
   }
 }
 
@@ -729,22 +739,16 @@ export default function HomeScreen() {
         </Pressable>
 
         {/* GitHub Stats & Bug Report (NEU) */}
-        <View style={{ marginTop: 24, marginBottom: 8, alignItems: 'center', gap: 6 }}>
+        <View style={{ marginTop: 24, marginBottom: 8, alignItems: 'center' }}>
           <Text style={{ fontSize: 10, color: '#666', textAlign: 'center' }}>
-            {githubInfo}
+            {githubInfo}{' '}
+            <Text 
+              onPress={() => Linking.openURL(BUG_REPORT_URL)}
+              style={{ fontSize: 12 }}
+            >
+              🐞
+            </Text>
           </Text>
-          <Pressable 
-            onPress={() => Linking.openURL(BUG_REPORT_URL)}
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.6 : 1,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6
-            })}
-          >
-            <Text style={{ fontSize: 16 }}>🐞</Text>
-            <Text style={{ fontSize: 12, color: '#888' }}>Fehler melden</Text>
-          </Pressable>
         </View>
 
       </ScrollView>
