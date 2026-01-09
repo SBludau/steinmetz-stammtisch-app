@@ -7,7 +7,7 @@ import { supabase } from '../src/lib/supabase'
 import { colors, radius } from '../src/theme/colors'
 import { type } from '../src/theme/typography'
 
-const PROFILE_PLACEHOLDER = 'https://placehold.co/400x400/1a1a1a/gold?text=?' // Platzhalter auch größer
+const PROFILE_PLACEHOLDER = 'https://placehold.co/400x400/1a1a1a/gold?text=?'
 
 type Degree = 'none' | 'dr' | 'prof'
 type ProfileData = {
@@ -38,7 +38,7 @@ export default function MemberCardScreen() {
   const [maxStreak, setMaxStreak] = useState(0)
   const [attendanceYear, setAttendanceYear] = useState(0) // in %
   
-  // Fallback Avatar (aus params oder Google RPC, falls nötig)
+  // Fallback Avatar
   const [googleAvatar, setGoogleAvatar] = useState<string | null>(null)
 
   const publicAvatarUrl = useMemo(() => {
@@ -50,12 +50,10 @@ export default function MemberCardScreen() {
   const fullName = useMemo(() => {
     if (!profile) return 'Lade...'
     const deg = profile.degree === 'dr' ? 'Dr. ' : profile.degree === 'prof' ? 'Prof. ' : ''
-    // FIX: Zweitname zwischen Vor- und Nachname
     const mid = profile.middle_name ? ` ${profile.middle_name}` : ''
     return `${deg}${profile.first_name}${mid} ${profile.last_name}`.trim()
   }, [profile])
 
-  // QR Code URL (externe API, keine extra Library nötig)
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent("Wer das liest ist doof!")}&bgcolor=ffffff`
 
   useEffect(() => {
@@ -75,36 +73,50 @@ export default function MemberCardScreen() {
       
       if (pData) {
         setProfile(pData)
-        // Falls kein DB-Bild, versuche Google Avatar via RPC
         if (!pData.avatar_url && pData.auth_user_id) {
            const { data: gData } = await supabase.rpc('public_get_google_avatars', { p_user_ids: [pData.auth_user_id] })
            if (gData && gData[0]?.avatar_url) setGoogleAvatar(gData[0].avatar_url)
         }
       }
 
-      // IDs für Abfragen normalisieren
+      // IDs normalisieren
       const targetAuthId = pData?.auth_user_id || authId
       const targetProfileId = pData?.id || profileId
 
       // 2. Runden zählen (All-Time, nur approved)
-      // Birthday Rounds
-      const { count: cBirth } = await supabase
+      // FIX: Wir suchen jetzt nach Auth-ID ODER Profil-ID (kombiniert), um "Hybrid-User" komplett zu erfassen.
+      
+      // Basis-Queries vorbereiten
+      let queryBirth = supabase
         .from('birthday_rounds')
         .select('*', { count: 'exact', head: true })
-        .eq(targetAuthId ? 'auth_user_id' : 'profile_id', targetAuthId || targetProfileId)
         .not('approved_at', 'is', null)
 
-      // Spender Rounds
-      const { count: cSpender } = await supabase
+      let querySpender = supabase
         .from('spender_rounds')
         .select('*', { count: 'exact', head: true })
-        .eq(targetAuthId ? 'auth_user_id' : 'profile_id', targetAuthId || targetProfileId)
         .not('approved_at', 'is', null)
+
+      // Filterlogik anwenden
+      if (targetAuthId && targetProfileId) {
+        // User ist verknüpft -> Finde Einträge für Auth-ID ODER Profil-ID
+        const orFilter = `auth_user_id.eq.${targetAuthId},profile_id.eq.${targetProfileId}`
+        queryBirth = queryBirth.or(orFilter)
+        querySpender = querySpender.or(orFilter)
+      } else if (targetAuthId) {
+        queryBirth = queryBirth.eq('auth_user_id', targetAuthId)
+        querySpender = querySpender.eq('auth_user_id', targetAuthId)
+      } else {
+        queryBirth = queryBirth.eq('profile_id', targetProfileId)
+        querySpender = querySpender.eq('profile_id', targetProfileId)
+      }
+
+      const { count: cBirth } = await queryBirth
+      const { count: cSpender } = await querySpender
 
       setRoundsCount((cBirth || 0) + (cSpender || 0))
 
-      // 3. Events & Teilnahme laden (für Streak & Jahres-Statistik)
-      // Alle vergangenen Stammtische laden
+      // 3. Events & Teilnahme laden
       const nowIso = new Date().toISOString()
       const { data: allEvents } = await supabase
         .from('stammtisch')
@@ -114,7 +126,7 @@ export default function MemberCardScreen() {
       
       const events = allEvents || []
 
-      // Alle Teilnahmen dieses Users (linked & unlinked kombiniert)
+      // Alle Teilnahmen (hier war die Logik schon korrekt getrennt, da linked/unlinked separate Tabellen sind)
       const myParticipationIds = new Set<number>()
 
       if (targetAuthId) {
@@ -126,7 +138,6 @@ export default function MemberCardScreen() {
         linked?.forEach(r => myParticipationIds.add(r.stammtisch_id))
       }
       
-      // Auch unlinked prüfen (könnte alte Einträge haben)
       if (targetProfileId) {
         const { data: unlinked } = await supabase
           .from('stammtisch_participants_unlinked')
@@ -136,7 +147,7 @@ export default function MemberCardScreen() {
         unlinked?.forEach(r => myParticipationIds.add(r.stammtisch_id))
       }
 
-      // A) All-Time Streak berechnen
+      // A) Streak
       let currentStreak = 0
       let maxS = 0
       for (const ev of events) {
@@ -149,7 +160,7 @@ export default function MemberCardScreen() {
       }
       setMaxStreak(maxS)
 
-      // B) Jahres-Statistik (Aktuelles Jahr)
+      // B) Jahres-Statistik
       const currentYear = new Date().getFullYear()
       const eventsThisYear = events.filter(e => e.date.startsWith(`${currentYear}-`))
       const countEventsYear = eventsThisYear.length
@@ -183,16 +194,14 @@ export default function MemberCardScreen() {
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView contentContainerStyle={{ padding: 20, paddingTop: insets.top + 20 }}>
         
-        {/* Header */}
         <Text style={[type.h1, { textAlign: 'center', marginBottom: 20 }]}>Mitgliedsausweis</Text>
 
-        {/* Die KARTE */}
         <View style={{
           backgroundColor: '#1a1a1a',
           borderRadius: radius.lg,
           borderWidth: 2,
           borderColor: colors.gold,
-          padding: 24, // etwas mehr Padding innen
+          padding: 24,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.5,
@@ -200,23 +209,20 @@ export default function MemberCardScreen() {
           elevation: 10,
         }}>
           
-          {/* NEU: Zentriertes Layout (Bild Oben, Text darunter) */}
           <View style={{ alignItems: 'center', marginBottom: 24 }}>
-            {/* Avatar Groß - JETZT DOPPELT SO GROSS */}
             <Image 
               source={{ uri: publicAvatarUrl || PROFILE_PLACEHOLDER }} 
               style={{ 
-                width: 280,  // <--- Verdoppelt von 140
-                height: 280, // <--- Verdoppelt von 140
-                borderRadius: 140, // <--- Angepasst (Hälfte der neuen Größe)
-                borderWidth: 4,    // <--- Rahmen etwas dicker gemacht für die Größe
+                width: 280, 
+                height: 280, 
+                borderRadius: 140, 
+                borderWidth: 4, 
                 borderColor: colors.border,
                 backgroundColor: '#000',
-                marginBottom: 20 // Abstand zum Namen etwas erhöht
+                marginBottom: 20 
               }} 
             />
             
-            {/* Info Zentriert */}
             <Text style={[type.h2, { fontSize: 28, color: colors.gold, textAlign: 'center' }]}>
               {fullName}
             </Text>
@@ -238,26 +244,21 @@ export default function MemberCardScreen() {
             )}
           </View>
 
-          {/* Trennlinie */}
           <View style={{ height: 1, backgroundColor: colors.border, marginBottom: 24, opacity: 0.5 }} />
 
-          {/* Kennzahlen Grid */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 }}>
-            {/* Spalte 1: Runden */}
             <View style={{ alignItems: 'center', flex: 1 }}>
               <Text style={{ fontSize: 28 }}>🍻</Text>
               <Text style={[type.h2, { marginTop: 4 }]}>{roundsCount}</Text>
               <Text style={[type.caption, { textAlign: 'center', color: '#999' }]}>Runden{'\n'}gesamt</Text>
             </View>
 
-            {/* Spalte 2: Streak */}
             <View style={{ alignItems: 'center', flex: 1 }}>
               <Text style={{ fontSize: 28 }}>🔥</Text>
               <Text style={[type.h2, { marginTop: 4 }]}>{maxStreak}</Text>
               <Text style={[type.caption, { textAlign: 'center', color: '#999' }]}>Längste{'\n'}Serie</Text>
             </View>
 
-            {/* Spalte 3: Jahr % */}
             <View style={{ alignItems: 'center', flex: 1 }}>
               <Text style={{ fontSize: 28 }}>📅</Text>
               <Text style={[type.h2, { marginTop: 4 }]}>{attendanceYear}%</Text>
@@ -265,7 +266,6 @@ export default function MemberCardScreen() {
             </View>
           </View>
 
-          {/* Zitat (falls vorhanden) */}
           {profile?.quote && (
             <View style={{ marginBottom: 20, padding: 10, backgroundColor: 'rgba(255,215,0, 0.1)', borderRadius: radius.md, borderWidth: 1, borderColor: 'rgba(255,215,0, 0.3)' }}>
               <Text style={[type.bodyMuted, { fontStyle: 'italic', textAlign: 'center', color: colors.gold }]}>
@@ -274,7 +274,6 @@ export default function MemberCardScreen() {
             </View>
           )}
 
-          {/* NEU: QR Code Bereich */}
           <View style={{ alignItems: 'center', marginTop: 8 }}>
             <View style={{ backgroundColor: '#fff', padding: 4, borderRadius: 4 }}>
                <Image 
