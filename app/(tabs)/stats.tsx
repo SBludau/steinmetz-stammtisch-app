@@ -374,23 +374,34 @@ export default function StatsScreen() {
   // dann rechnen wir es dem Auth-Key zu. Damit verschwinden die Dopplungen.
   // —————————————————————————————————————————————————————————
 
-  // ——— 1) Top Teilnahmen (status = going) ———
+// ——— 1) Top Teilnahmen (status = going) ———
+  // FIX: Doppelte Zählung verhindern, wenn jemand Linked UND Unlinked im selben Event steht
   const topTeilnahmenRanked: Ranked[] = useMemo(() => {
     const counts: Record<Key, number> = {}
+
     for (const ev of events) {
-      const set = goingKeysByEvent[ev.id] || new Set<Key>()
-      for (const k of set) {
-        // ——— Fix Start: Key normalisieren ———
-        let useKey = k
+      const rawSet = goingKeysByEvent[ev.id] || new Set<Key>()
+      
+      // Zwischenschritt: Alle Keys dieses Abends erst normalisieren und in ein Set werfen.
+      // Das Set eliminiert automatisch Duplikate (z.B. wenn auth:xyz und profile:93 beide auf auth:xyz zeigen).
+      const uniqueUserPerEvent = new Set<Key>()
+
+      for (const k of rawSet) {
+        let finalKey = k
         const p = profileByKey[k]
-        // Wenn wir über Profile-Key kommen, aber User ist verknüpft -> nimm Auth-Key
+        // Wenn Profil verknüpft ist -> immer den Auth-Key nutzen
         if (p?.auth_user_id) {
-          useKey = keyFromAuth(p.auth_user_id)
+          finalKey = keyFromAuth(p.auth_user_id)
         }
-        // ——— Fix End ———
-        counts[useKey] = (counts[useKey] || 0) + 1
+        uniqueUserPerEvent.add(finalKey)
+      }
+
+      // Jetzt erst zählen – jeder User ist jetzt garantiert nur 1x im Set enthalten
+      for (const uniqueKey of uniqueUserPerEvent) {
+        counts[uniqueKey] = (counts[uniqueKey] || 0) + 1
       }
     }
+
     const entries = Object.entries(counts).map(([k, v]) => ({ key: k as Key, value: v }))
     return rankTop3(entries)
   }, [events, goingKeysByEvent, profileByKey])
