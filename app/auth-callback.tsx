@@ -1,3 +1,4 @@
+// app/auth-callback.tsx
 import { useEffect } from 'react'
 import { View, Text, ActivityIndicator, Platform } from 'react-native'
 import { useRouter } from 'expo-router'
@@ -6,67 +7,50 @@ import { supabase } from '../src/lib/supabase'
 
 export default function AuthCallback() {
   const router = useRouter()
+  
+  // FIX 1: Hook MUSS oben stehen, nicht im useEffect!
+  const url = Linking.useURL()
 
   useEffect(() => {
     const handleAuth = async () => {
       try {
+        let sessionCreated = false
+
         // ============================================================
-        // 1. WEB LOGIK (Vercel Fix)
-        // Läuft NUR im Browser. Android ignoriert das komplett.
+        // 1. WEB LOGIK
         // ============================================================
         if (Platform.OS === 'web') {
-          // Im Web versteckt Supabase die Tokens im Hash (#access_token=...)
-          // Linking.parse ist im Web manchmal unzuverlässig mit Hashes.
           const hash = window.location.hash
           
+          // Fall A: Schon eingeloggt?
           if (!hash) {
-            // Kein Hash? Vielleicht sind wir schon eingeloggt?
              const { data } = await supabase.auth.getSession()
-             if (data.session) {
-                router.replace('/')
-                return
-             }
-          }
+             if (data.session) sessionCreated = true
+          } else {
+            // Fall B: Hash verarbeiten
+            const params = new URLSearchParams(hash.replace('#', ''))
+            const accessToken = params.get('access_token')
+            const refreshToken = params.get('refresh_token')
+            const code = params.get('code')
 
-          // Hash manuell zerlegen (Sicherste Methode für Web)
-          const params = new URLSearchParams(hash.replace('#', ''))
-          const accessToken = params.get('access_token')
-          const refreshToken = params.get('refresh_token')
-          const code = params.get('code')
-
-          if (accessToken && refreshToken) {
-            const { error } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            })
-            if (!error) {
-                router.replace('/')
-                return
+            if (accessToken && refreshToken) {
+              const { error } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              })
+              if (!error) sessionCreated = true
+            } else if (code) {
+               const { error } = await supabase.auth.exchangeCodeForSession(code)
+               if (!error) sessionCreated = true
             }
           }
-          
-          // Fallback für Code Flow
-          if (code) {
-             const { error } = await supabase.auth.exchangeCodeForSession(code)
-             if (!error) {
-                router.replace('/')
-                return
-             }
-          }
-          
-          // Wenn alles fehlschlägt, lass Supabase es selbst versuchen
-          supabase.auth.getSession().then(({ data }) => {
-            if (data.session) router.replace('/')
-            else router.replace('/login') // Zurück zum Start, wenn nix gefunden
-          })
         
         // ============================================================
-        // 2. ANDROID / IOS LOGIK (Original Code)
-        // Läuft NUR in der App. Web ignoriert das komplett.
+        // 2. NATIVE (Android/iOS) LOGIK
         // ============================================================
         } else {
-          const url = Linking.useURL()
-          if (!url) return
+          // Wir nutzen die url vom Hook oben
+          if (!url) return 
 
           const { queryParams } = Linking.parse(url)
           const code = queryParams?.code as string | undefined
@@ -75,28 +59,53 @@ export default function AuthCallback() {
 
           if (code) {
             const { error } = await supabase.auth.exchangeCodeForSession(code)
-            if (error) console.error('Native exchange error:', error.message)
+            if (!error) sessionCreated = true
           } else if (access_token && refresh_token) {
             const { error } = await supabase.auth.setSession({ access_token, refresh_token })
-            if (error) console.error('Native setSession error:', error.message)
+            if (!error) sessionCreated = true
           }
-
-          router.replace('/')
         }
+
+        // ============================================================
+        // 3. WEICHE: Wohin geht es?
+        // ============================================================
+        if (sessionCreated) {
+           // Sicherheitshalber aktuelle Session holen
+           const { data: { session } } = await supabase.auth.getSession()
+           
+           if (session?.user) {
+             // Prüfen: Hat dieser User ein Profil?
+             const { data: profile } = await supabase
+               .from('profiles')
+               .select('id')
+               .eq('auth_user_id', session.user.id)
+               .maybeSingle()
+
+             if (profile) {
+               router.replace('/')
+             } else {
+               router.replace('/claim-profile')
+             }
+             return
+           }
+        }
+
+        // Falls keine Session zustande kam (z.B. User bricht ab), zurück zum Login
+        // router.replace('/login') 
+        // (Optional: hier könnte man auch nichts tun und den User manuell navigieren lassen)
 
       } catch (e: any) {
         console.error('AuthCallback error:', e.message)
-        // Im Zweifel zur Login-Seite zurück, statt White Screen
         if (Platform.OS === 'web') router.replace('/login')
       }
     }
 
     handleAuth()
-  }, [router])
+  }, [url, router]) // url ist jetzt dependency
 
   return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
-      <Text style={{ color: '#FFD700', marginBottom: 20 }}>Anmeldung läuft...</Text>
+      <Text style={{ color: '#FFD700', marginBottom: 20 }}>Verbinde...</Text>
       <ActivityIndicator size="large" color="#FFD700" />
     </View>
   )

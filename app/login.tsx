@@ -12,7 +12,7 @@ import { type } from '../src/theme/typography'
 
 WebBrowser.maybeCompleteAuthSession()
 
-// Tokens (auch Hash-Fragment) extrahieren und Session setzen
+// Hilfsfunktion für manuellen Session-Bau (Fallback)
 async function createSessionFromUrl(url: string) {
   const parsed = new URL(url)
   const query = Object.fromEntries(parsed.searchParams.entries())
