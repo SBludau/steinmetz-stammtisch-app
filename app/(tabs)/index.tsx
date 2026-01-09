@@ -1,6 +1,6 @@
 // app/(tabs)/index.tsx
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { View, Text, Image, Pressable, ScrollView, TextInput, Alert, Platform } from 'react-native'
+import { View, Text, Image, Pressable, ScrollView, TextInput, Alert, Platform, Linking } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -8,6 +8,77 @@ import { supabase } from '../../src/lib/supabase'
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../src/components/BottomNav'
 import { colors, radius } from '../../src/theme/colors'
 import { type } from '../../src/theme/typography'
+
+// ---- Konfiguration ----
+const BUG_REPORT_URL = 'https://docs.google.com/forms/d/e/DEINE_FORM_ID/viewform' // HIER DEINE GOOGLE FORM URL EINTRAGEN
+
+// ---- GitHub Logic & Cache ----
+const GITHUB_REPO = 'SBludau/steinmetz-stammtisch-app'
+let githubCache = {
+  data: null as string | null,
+  timestamp: 0
+}
+
+const fetchGitHubStats = async (): Promise<string> => {
+  const now = Date.now()
+  const oneHour = 60 * 60 * 1000
+
+  // 1. Cache prüfen
+  if (githubCache.data && (now - githubCache.timestamp < oneHour)) {
+    return githubCache.data
+  }
+
+  try {
+    // 2. Daten laden
+    // A) Basisdaten für Datum
+    const repoRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}`)
+    if (!repoRes.ok) throw new Error('Repo fetch failed')
+    const repoData = await repoRes.json()
+    const pushedDate = repoData.pushed_at ? repoData.pushed_at.slice(0, 10) : '????-??-??'
+
+    // B) Release (Version)
+    let version = 'unreleased'
+    try {
+      const relRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`)
+      if (relRes.ok) {
+        const relData = await relRes.json()
+        version = relData.tag_name || version
+      }
+    } catch { /* Fallback bleibt unreleased */ }
+
+    // C) Commits (letztes Jahr)
+    let commits = 0
+    try {
+      const statsRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/stats/participation`)
+      if (statsRes.ok) {
+        const statsData = await statsRes.json()
+        if (Array.isArray(statsData.all)) {
+          commits = statsData.all.reduce((a: number, b: number) => a + b, 0)
+        }
+      }
+    } catch { /* Fallback bleibt 0 */ }
+
+    // 3. String bauen
+    const infoString = `Open Source · ${version} · ${commits} Commits im letzten Jahr · Stand: ${pushedDate}`
+
+    // 4. Cache aktualisieren
+    githubCache = {
+      data: infoString,
+      timestamp: now
+    }
+
+    return infoString
+
+  } catch (error) {
+    // Fehlerfall
+    if (githubCache.data) {
+      return githubCache.data // Alter Cache als Fallback
+    }
+    return 'Open Source · GitHub-Daten aktuell nicht verfügbar'
+  }
+}
+
+// ---- Types ----
 
 type Row = { id: number; date: string; location: string; notes: string | null }
 type Degree = 'none' | 'dr' | 'prof'
@@ -95,6 +166,14 @@ export default function HomeScreen() {
   const [predMonth, setPredMonth] = useState('')
   const [predYear, setPredYear] = useState('')
   const [vegasCollapsed, setVegasCollapsed] = useState(true)
+
+  // State für GitHub Info
+  const [githubInfo, setGithubInfo] = useState<string>('Lade Daten...')
+
+  // GitHub Stats laden
+  useEffect(() => {
+    fetchGitHubStats().then(setGithubInfo)
+  }, [])
 
   // Session prüfen
   useFocusEffect(
@@ -323,6 +402,8 @@ export default function HomeScreen() {
       loadProfiles()
       loadProfileCard()
       loadVegasSettings()
+      // Auch Stats aktualisieren bei Focus
+      fetchGitHubStats().then(setGithubInfo)
     }, [sessionChecked, loadData, loadProfiles, loadProfileCard, loadVegasSettings])
   )
 
@@ -334,6 +415,7 @@ export default function HomeScreen() {
       loadProfiles()
       loadProfileCard()
       loadVegasSettings()
+      fetchGitHubStats().then(setGithubInfo)
     })
     return unsub
   }, [navigation, sessionChecked, loadData, loadProfiles, loadProfileCard, loadVegasSettings])
@@ -645,6 +727,26 @@ export default function HomeScreen() {
             </View>
           )}
         </Pressable>
+
+        {/* GitHub Stats & Bug Report (NEU) */}
+        <View style={{ marginTop: 24, marginBottom: 8, alignItems: 'center', gap: 6 }}>
+          <Text style={{ fontSize: 10, color: '#666', textAlign: 'center' }}>
+            {githubInfo}
+          </Text>
+          <Pressable 
+            onPress={() => Linking.openURL(BUG_REPORT_URL)}
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.6 : 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6
+            })}
+          >
+            <Text style={{ fontSize: 16 }}>🐞</Text>
+            <Text style={{ fontSize: 12, color: '#888' }}>Fehler melden</Text>
+          </Pressable>
+        </View>
+
       </ScrollView>
 
       <BottomNav />
