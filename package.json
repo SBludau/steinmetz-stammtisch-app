@@ -44,7 +44,8 @@
     "expo-auth-session": "~6.2.1",
     "expo-dev-client": "~5.2.4",
     "@react-native-picker/picker": "2.11.1",
-    "@expo/metro-runtime": "~5.0.5"
+    "@expo/metro-runtime": "~5.0.5",
+    "expo-av": "~15.1.7"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

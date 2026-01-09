@@ -4,13 +4,26 @@ import { View, Text, Image, Pressable, ScrollView, TextInput, Alert, Platform, L
 import { useRouter } from 'expo-router'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Audio } from 'expo-av' // <--- NEU: Audio Import
 import { supabase } from '../../src/lib/supabase'
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../src/components/BottomNav'
 import { colors, radius } from '../../src/theme/colors'
 import { type } from '../../src/theme/typography'
 
 // ---- Konfiguration ----
-const BUG_REPORT_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSeE2_ntS1R4jZXgrWeIZrhS4GRlHZ6rTla18EBQgGjRmc3EhQ/viewform?usp=dialog' // HIER DEINE GOOGLE FORM URL EINTRAGEN
+const BUG_REPORT_URL = 'https://forms.gle/DeinKopierterCodeHier' // <--- HIER DEINEN LINK PRÜFEN
+
+// ---- Assets: Fürze (Genau deine Dateinamen) ----
+const FART_SOUNDS = [
+  require('../../assets/sounds/692p2psp9cw-farts-sfx-7.mp3'),
+  require('../../assets/sounds/aqkv1blyjfj-farts-sfx-5.mp3'),
+  require('../../assets/sounds/c15cwzuu2ur-farts-sfx-3.mp3'),
+  require('../../assets/sounds/hvc0mpvociu-farts-sfx-2.mp3'),
+  require('../../assets/sounds/mpkm722i4g-farts-sfx-0.mp3'),
+  require('../../assets/sounds/spbq5hnkc1-farts-sfx-6.mp3'),
+  require('../../assets/sounds/y4ggm7y5yir-farts-sfx-4.mp3'),
+  require('../../assets/sounds/znaqxa9i3ng-farts-sfx-8.mp3'),
+]
 
 // ---- GitHub Logic & Cache ----
 const GITHUB_REPO = 'SBludau/steinmetz-stammtisch-app'
@@ -38,19 +51,17 @@ const fetchGitHubStats = async (): Promise<string> => {
 
     // B) Version ermitteln (Release ODER Tag)
     let version = 'unreleased'
-    // Versuch 1: Latest Release
     try {
       const relRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`)
       if (relRes.ok) {
         const relData = await relRes.json()
         version = relData.tag_name || version
       } else {
-        // Versuch 2: Tags (wenn kein Release existiert)
         const tagsRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/tags`)
         if (tagsRes.ok) {
           const tagsData = await tagsRes.json()
           if (Array.isArray(tagsData) && tagsData.length > 0) {
-            version = tagsData[0].name // Der erste Tag ist meist der neueste
+            version = tagsData[0].name 
           }
         }
       }
@@ -68,7 +79,7 @@ const fetchGitHubStats = async (): Promise<string> => {
       }
     } catch { /* Fallback bleibt 0 */ }
 
-    // 3. String bauen (ohne Käfer, der kommt im UI dazu)
+    // 3. String bauen
     const infoString = `Steinmetz Source · ${version} · ${commits} Commits · Stand: ${pushedDate}`
 
     // 4. Cache aktualisieren
@@ -80,9 +91,8 @@ const fetchGitHubStats = async (): Promise<string> => {
     return infoString
 
   } catch (error) {
-    // Fehlerfall
     if (githubCache.data) {
-      return githubCache.data // Alter Cache als Fallback
+      return githubCache.data
     }
     return 'Steinmetz Source · GitHub-Daten aktuell nicht verfügbar'
   }
@@ -177,13 +187,27 @@ export default function HomeScreen() {
   const [predYear, setPredYear] = useState('')
   const [vegasCollapsed, setVegasCollapsed] = useState(true)
 
-  // State für GitHub Info
+  // ---- NEU: State für GitHub Info ----
   const [githubInfo, setGithubInfo] = useState<string>('Lade Daten...')
 
-  // GitHub Stats laden
+  // ---- NEU: GitHub Stats laden ----
   useEffect(() => {
     fetchGitHubStats().then(setGithubInfo)
   }, [])
+
+  // ---- NEU: Furz abspielen Funktion ----
+  const playRandomFart = async () => {
+    try {
+      // 1. Zufälligen Index wählen
+      const randomIndex = Math.floor(Math.random() * FART_SOUNDS.length)
+      const soundFile = FART_SOUNDS[randomIndex]
+
+      // 2. Sound laden und abspielen (Async, damit UI nicht blockiert)
+      await Audio.Sound.createAsync(soundFile, { shouldPlay: true })
+    } catch (error) {
+      console.log('Konnte Sound nicht abspielen', error)
+    }
+  }
 
   // Session prüfen
   useFocusEffect(
@@ -738,7 +762,28 @@ export default function HomeScreen() {
           )}
         </Pressable>
 
-        {/* GitHub Stats & Bug Report (NEU) */}
+        {/* ---- NEU: Furtz Button ---- */}
+        <View style={{ marginTop: 24, alignItems: 'center' }}>
+          <Pressable 
+            onPress={playRandomFart}
+            style={({pressed}) => ({
+              backgroundColor: '#3e3e3e',
+              width: 50,
+              height: 50,
+              borderRadius: 25,
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: pressed ? 0.7 : 1,
+              borderWidth: 1,
+              borderColor: '#555'
+            })}
+          >
+            <Text style={{ fontSize: 24 }}>💨</Text>
+          </Pressable>
+          <Text style={{ ...type.caption, fontSize: 10, marginTop: 4, color: '#666' }}>Druckabbau</Text>
+        </View>
+
+        {/* ---- NEU: GitHub Stats & Bug Report ---- */}
         <View style={{ marginTop: 24, marginBottom: 8, alignItems: 'center' }}>
           <Text style={{ fontSize: 10, color: '#666', textAlign: 'center' }}>
             {githubInfo}{' '}
