@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import { View, Text, Image, ScrollView, ActivityIndicator, Pressable } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native'
+import { useRouter } from 'expo-router' // <--- Wichtig für Navigation
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../src/components/BottomNav'
 import { supabase } from '../../src/lib/supabase'
 import { colors, radius } from '../../src/theme/colors'
@@ -108,9 +109,31 @@ function Header({ emoji, title, subtitle }: { emoji: string; title: string; subt
   )
 }
 
-function PersonRow({ rank, name, avatar, detail }: { rank: number; name: string; avatar?: string; detail: string }) {
+// Aktualisierte PersonRow: Klickbar mit onPress
+function PersonRow({ 
+  rank, 
+  name, 
+  avatar, 
+  detail, 
+  onPress 
+}: { 
+  rank: number; 
+  name: string; 
+  avatar?: string; 
+  detail: string; 
+  onPress?: () => void 
+}) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 }}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        justifyContent: 'space-between', 
+        paddingVertical: 8,
+        opacity: pressed ? 0.7 : 1
+      })}
+    >
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <View
           style={{
@@ -135,8 +158,11 @@ function PersonRow({ rank, name, avatar, detail }: { rank: number; name: string;
         </View>
         <Text style={{ ...type.body, fontWeight: '600' }}>{name}</Text>
       </View>
-      <Text style={type.bodyMuted}>{detail}</Text>
-    </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Text style={type.bodyMuted}>{detail}</Text>
+        <Text style={{ marginLeft: 8, color: '#666', fontSize: 12 }}>›</Text>
+      </View>
+    </Pressable>
   )
 }
 
@@ -183,6 +209,7 @@ function YearChips({
 // Hauptseite
 // ——————————————————————————————————————————
 export default function StatsScreen() {
+  const router = useRouter()
   const insets = useSafeAreaInsets()
 
   const [selectedYear, setSelectedYear] = useState<number>(CURRENT_YEAR)
@@ -200,25 +227,22 @@ export default function StatsScreen() {
   // nur aktuelles Jahr und die letzten zwei
   const years = useMemo(() => [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2], [])
 
-  // Grenzen: bis heute (für aktuelles Jahr) sonst bis 31.12.
+  // Grenzen
   const startDate = useMemo(() => `${selectedYear}-01-01`, [selectedYear])
   const endDate = useMemo(
     () => (selectedYear === CURRENT_YEAR ? todayYMD : `${selectedYear}-12-31`),
     [selectedYear]
   )
 
-  // zusätzlich: UTC-zeitbasierte Grenzen für approved_at (halb-offen)
   const startApprovedInclusive = useMemo(() => `${startDate}T00:00:00Z`, [startDate])
   const endApprovedExclusive = useMemo(() => {
     if (selectedYear === CURRENT_YEAR) {
-      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) // morgen (lokal), JS erzeugt UTC-ISO
-      // auf YYYY-MM-DDT00:00:00Z normalisieren
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
       const y = next.getUTCFullYear()
       const m = pad(next.getUTCMonth() + 1)
       const d = pad(next.getUTCDate())
       return `${y}-${m}-${d}T00:00:00Z`
     } else {
-      // 01.01.(Jahr+1) 00:00Z
       return `${selectedYear + 1}-01-01T00:00:00Z`
     }
   }, [selectedYear])
@@ -233,20 +257,37 @@ export default function StatsScreen() {
     return map
   }, [profiles])
 
+  // Hilfsfunktion: Hängt Zeitstempel an, um Cache zu umgehen
+  const getAvatarUrlWithCacheBust = (path: string | null | undefined) => {
+    const url = getPublicAvatarUrl(path)
+    if (!url) return undefined
+    return `${url}?t=${new Date().getTime()}` 
+  }
+
   const avatarForKey = (key: Key | undefined) => {
     if (!key) return undefined
     const p = profileByKey[key]
+    
+    // 1. Auth Key Check
     if (key.startsWith('auth:')) {
       const uid = key.slice(5)
-      return getPublicAvatarUrl(p?.avatar_url) || fallbackAvatars[uid]
+      const dbUrl = getAvatarUrlWithCacheBust(p?.avatar_url)
+      if (dbUrl) return dbUrl
+      return fallbackAvatars[uid]
     }
-    // Wenn wir hier landen, ist es ein reiner Profile-Key (unlinked)
-    // Wenn das Profil aber EIGENTLICH linked ist, sollte es im UI über den auth-key laufen.
-    // Falls doch mal einer hier landet:
-    if (p?.auth_user_id && fallbackAvatars[p.auth_user_id]) {
-      return fallbackAvatars[p.auth_user_id]
+    
+    // 2. Profile Key Check (verknüpft?)
+    if (p?.auth_user_id) {
+       const dbUrl = getAvatarUrlWithCacheBust(p.avatar_url)
+       if (dbUrl) return dbUrl
+       
+       if (fallbackAvatars[p.auth_user_id]) {
+         return fallbackAvatars[p.auth_user_id]
+       }
     }
-    return getPublicAvatarUrl(p?.avatar_url)
+    
+    // 3. Reines DB Profil
+    return getAvatarUrlWithCacheBust(p?.avatar_url)
   }
 
   const nameForKey = (key: Key | undefined) => fullName(key ? profileByKey[key] : undefined)
@@ -255,23 +296,22 @@ export default function StatsScreen() {
     setLoading(true)
     setError(null)
     try {
-      // 1) Events im gewählten Jahr – NUR bis endDate (heute bei aktuellem Jahr)
+      // 1) Events
       const { data: eventsData, error: e1 } = await supabase
         .from('stammtisch')
         .select('id,date')
         .gte('date', startDate)
-        .lte('date', endDate) // keine zukünftigen Stammtische
+        .lte('date', endDate)
         .order('date', { ascending: true })
       if (e1) throw e1
       const evs = (eventsData ?? []) as EventRow[]
       setEvents(evs)
 
-      // 2) Teilnehmer je Event – *linked* und *unlinked* zusammenführen
+      // 2) Teilnehmer
       const byEvent: Record<number, Set<Key>> = {}
       for (const ev of evs) {
         const goingSet: Set<Key> = new Set()
 
-        // linked
         const { data: linked, error: errL } = await supabase
           .from('stammtisch_participants')
           .select('auth_user_id,status')
@@ -281,7 +321,6 @@ export default function StatsScreen() {
           if (row.status === 'going') goingSet.add(keyFromAuth(row.auth_user_id))
         }
 
-        // unlinked
         const { data: unlinked, error: errU } = await supabase
           .from('stammtisch_participants_unlinked')
           .select('profile_id,status')
@@ -295,7 +334,7 @@ export default function StatsScreen() {
       }
       setGoingKeysByEvent(byEvent)
 
-      // 3) Profiles (für Namen + Avatare)
+      // 3) Profiles
       const { data: profData, error: e2 } = await supabase
         .from('profiles')
         .select('id,auth_user_id,first_name,last_name,avatar_url')
@@ -303,7 +342,7 @@ export default function StatsScreen() {
       const profs = (profData ?? []) as Profile[]
       setProfiles(profs)
 
-      // 3b) Google-Avatar-Fallback via RPC
+      // 3b) Google Avatars
       try {
         const userIds = profs.map(p => p.auth_user_id).filter(Boolean) as string[]
         if (userIds.length) {
@@ -316,12 +355,9 @@ export default function StatsScreen() {
             setFallbackAvatars(map)
           }
         }
-      } catch {
-        // RPC existiert nicht -> ignorieren
-      }
+      } catch { /* ignore */ }
 
       // 4) Spender-Runden
-      // A) birthday_rounds
       const { data: bData, error: bErr } = await supabase
         .from('birthday_rounds')
         .select('auth_user_id,profile_id,settled_at,approved_at,settled_stammtisch_id')
@@ -330,7 +366,6 @@ export default function StatsScreen() {
         .lt('approved_at', endApprovedExclusive)
       if (bErr) throw bErr
 
-      // B) spender_rounds
       const { data: sData, error: sErr } = await supabase
         .from('spender_rounds')
         .select('auth_user_id,profile_id,created_at,approved_at,stammtisch_id')
@@ -339,7 +374,6 @@ export default function StatsScreen() {
         .lt('approved_at', endApprovedExclusive)
       if (sErr) throw sErr
 
-      // C) Zusammenführen
       const bRows = (bData ?? []) as DonorRow[]
       const sRows = (sData ?? []).map((r: any) => ({
         auth_user_id: r.auth_user_id,
@@ -369,34 +403,26 @@ export default function StatsScreen() {
   )
 
   // —————————————————————————————————————————————————————————
-  // FIX: Normalisierung der Keys für die Berechnung
-  // Wenn ein Key "profile:93" ist, das Profil aber inzwischen verknüpft ist ("auth:402..."),
-  // dann rechnen wir es dem Auth-Key zu. Damit verschwinden die Dopplungen.
+  // RANKINGS (Normalisiert)
   // —————————————————————————————————————————————————————————
 
-// ——— 1) Top Teilnahmen (status = going) ———
-  // FIX: Doppelte Zählung verhindern, wenn jemand Linked UND Unlinked im selben Event steht
+  // ——— 1) Top Teilnahmen ———
   const topTeilnahmenRanked: Ranked[] = useMemo(() => {
     const counts: Record<Key, number> = {}
 
     for (const ev of events) {
       const rawSet = goingKeysByEvent[ev.id] || new Set<Key>()
-      
-      // Zwischenschritt: Alle Keys dieses Abends erst normalisieren und in ein Set werfen.
-      // Das Set eliminiert automatisch Duplikate (z.B. wenn auth:xyz und profile:93 beide auf auth:xyz zeigen).
       const uniqueUserPerEvent = new Set<Key>()
 
       for (const k of rawSet) {
         let finalKey = k
         const p = profileByKey[k]
-        // Wenn Profil verknüpft ist -> immer den Auth-Key nutzen
         if (p?.auth_user_id) {
           finalKey = keyFromAuth(p.auth_user_id)
         }
         uniqueUserPerEvent.add(finalKey)
       }
 
-      // Jetzt erst zählen – jeder User ist jetzt garantiert nur 1x im Set enthalten
       for (const uniqueKey of uniqueUserPerEvent) {
         counts[uniqueKey] = (counts[uniqueKey] || 0) + 1
       }
@@ -408,7 +434,6 @@ export default function StatsScreen() {
 
   // ——— 2) Längste Serien ———
   const topStreaksRanked: Ranked[] = useMemo(() => {
-    // Zuerst bauen wir eine "saubere" Map pro Event, wo nur normalisierte Keys drin sind
     const normalizedEvents: Record<number, Set<Key>> = {}
     
     for (const ev of events) {
@@ -423,7 +448,6 @@ export default function StatsScreen() {
         normalizedEvents[ev.id] = normSet
     }
 
-    // Jetzt Streak berechnen basierend auf normalizedEvents
     const keysAll = new Set<Key>()
     Object.values(normalizedEvents).forEach(s => s.forEach(k => keysAll.add(k)))
 
@@ -458,11 +482,8 @@ export default function StatsScreen() {
 
       let k: Key | null = null
       
-      // Prio 1: Wenn das Profil eine auth_user_id hat, nimm diese (auch wenn in der Runde nur profile_id steht)
       if (p?.auth_user_id) k = keyFromAuth(p.auth_user_id)
-      // Prio 2: Wenn das Profil nur eine ID hat (unlinked), nimm diese
       else if (p) k = keyFromProfile(p.id)
-      // Fallback
       else if (d.auth_user_id) k = keyFromAuth(d.auth_user_id)
       else if (d.profile_id) k = keyFromProfile(d.profile_id)
 
@@ -473,12 +494,24 @@ export default function StatsScreen() {
     return rankTop3(entries)
   }, [donors, profileByKey])
 
-  // Renderer
+  // Renderer mit Navigation
   const renderList = (list: Ranked[], unit: string, emptyText: string) => {
     if (!list.length) return <Text style={type.body}>{emptyText}</Text>
     return (
       <View>
         {list.map((row, idx) => {
+          
+          const handlePress = () => {
+             // Navigation zur Member Card
+             if (row.key.startsWith('auth:')) {
+                const uid = row.key.slice(5)
+                router.push({ pathname: '/member-card', params: { authId: uid } })
+             } else if (row.key.startsWith('profile:')) {
+                const pid = row.key.slice(8)
+                router.push({ pathname: '/member-card', params: { profileId: pid } })
+             }
+          }
+
           return (
             <PersonRow
               key={`${row.key}-${idx}`}
@@ -486,6 +519,7 @@ export default function StatsScreen() {
               name={nameForKey(row.key)}
               avatar={avatarForKey(row.key)}
               detail={`${row.value} ${unit}`}
+              onPress={handlePress} // <--- Navigation auslösen
             />
           )
         })}

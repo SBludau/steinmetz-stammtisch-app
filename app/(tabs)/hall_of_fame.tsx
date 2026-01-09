@@ -1,8 +1,9 @@
 // app/(tabs)/hall_of_fame.tsx
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { View, Text, Image, ScrollView, ActivityIndicator } from 'react-native'
+import { View, Text, Image, ScrollView, ActivityIndicator, Pressable } from 'react-native' // <--- Pressable hinzugefügt
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native'
+import { useRouter } from 'expo-router' // <--- Router hinzugefügt
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../src/components/BottomNav'
 import { supabase } from '../../src/lib/supabase'
 import { colors, radius } from '../../src/theme/colors'
@@ -10,7 +11,7 @@ import { type } from '../../src/theme/typography'
 
 type Degree = 'none' | 'dr' | 'prof'
 type Profile = {
-  id: number                 // ✨ neu: DB-Primärschlüssel als stabiler Key
+  id: number
   auth_user_id: string | null
   first_name: string | null
   middle_name: string | null
@@ -63,28 +64,33 @@ function TableHeader() {
   return null
 }
 
+// UPDATE: TableRow ist jetzt klickbar (Pressable)
 function TableRow({
   p,
-  awards,    // bleibt in den Props, wird aber nicht gerendert
+  awards,
   thumb,
-  activeIcon, // bleibt in den Props, wird aber nicht gerendert
+  activeIcon,
   showMoney,
+  onPress, // <--- Neue Prop
 }: {
   p: Profile
   awards: { teilnahmen?: number; streak?: number; spender?: number }
   thumb?: string
   activeIcon: string
   showMoney: boolean
+  onPress: () => void // <--- Typ
 }) {
   return (
-    <View
-      style={{
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
         flexDirection: 'row',
         alignItems: 'center',
         paddingVertical: 8,
         borderTopWidth: 1,
         borderTopColor: colors.border,
-      }}
+        opacity: pressed ? 0.7 : 1, // Visuelles Feedback
+      })}
     >
       {/* Thumb */}
       <View
@@ -134,13 +140,14 @@ function TableRow({
       <View style={{ width: 26, alignItems: 'center' }}>
         <Text style={type.body}>{showMoney ? '💶' : ''}</Text>
       </View>
-
-      {/* Auszeichnungen-Spalte entfernt */}
-    </View>
+      
+      {/* (Kleiner Pfeil rechts implizit durch Klickbarkeit, Platz sparen wir uns hier) */}
+    </Pressable>
   )
 }
 
 export default function HallOfFameScreen() {
+  const router = useRouter() // <--- Router initialisieren
   const insets = useSafeAreaInsets()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -151,18 +158,20 @@ export default function HallOfFameScreen() {
   const [donors, setDonors] = useState<DonorRow[]>([])
   const [fallbackAvatars, setFallbackAvatars] = useState<Record<string, string>>({})
 
+  // Cache-Buster Funktion wie in stats.tsx
   const getPublicAvatarUrl = (path: string | null | undefined) => {
     if (!path) return undefined
     const { data } = supabase.storage.from('avatars').getPublicUrl(path)
-    return data.publicUrl || undefined
+    if (!data.publicUrl) return undefined
+    return `${data.publicUrl}?v=${Date.now()}` // <--- Cache Buster für frische Bilder
   }
+  
   const thumbFor = (p: Profile) => getPublicAvatarUrl(p.avatar_url) || fallbackAvatars[p.auth_user_id || '']
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      // ✨ id mitladen für stabile Keys bei unverknüpften Profilen
       const { data: profData, error: e0 } = await supabase
         .from('profiles')
         .select('id,auth_user_id,first_name,middle_name,last_name,degree,is_active,standing_order,avatar_url')
@@ -292,6 +301,15 @@ export default function HallOfFameScreen() {
   const kAct = (p: Profile) => `act-${p.auth_user_id ?? p.id}`
   const kPass = (p: Profile) => `pass-${p.auth_user_id ?? p.id}`
 
+  // Navigation Helper
+  const goToCard = (p: Profile) => {
+    if (p.auth_user_id) {
+       router.push({ pathname: '/member-card', params: { authId: p.auth_user_id } })
+    } else {
+       router.push({ pathname: '/member-card', params: { profileId: String(p.id) } })
+    }
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView
@@ -323,7 +341,7 @@ export default function HallOfFameScreen() {
               ) : (
                 activeProfiles.map((p) => (
                   <TableRow
-                    key={kAct(p)}                 // ✨ stabiler Key
+                    key={kAct(p)}
                     p={p}
                     thumb={thumbFor(p)}
                     activeIcon="🟢"
@@ -333,6 +351,7 @@ export default function HallOfFameScreen() {
                       streak: ranksStreaks.get(p.auth_user_id || ''),
                       spender: ranksSpender.get(p.auth_user_id || ''),
                     }}
+                    onPress={() => goToCard(p)} // <--- Navigation
                   />
                 ))
               )}
@@ -347,7 +366,7 @@ export default function HallOfFameScreen() {
               ) : (
                 passiveProfiles.map((p) => (
                   <TableRow
-                    key={kPass(p)}                // ✨ stabiler Key
+                    key={kPass(p)}
                     p={p}
                     thumb={thumbFor(p)}
                     activeIcon="🔴"
@@ -357,6 +376,7 @@ export default function HallOfFameScreen() {
                       streak: ranksStreaks.get(p.auth_user_id || ''),
                       spender: ranksSpender.get(p.auth_user_id || ''),
                     }}
+                    onPress={() => goToCard(p)} // <--- Navigation
                   />
                 ))
               )}
