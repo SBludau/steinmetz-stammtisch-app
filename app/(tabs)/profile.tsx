@@ -144,7 +144,7 @@ export default function ProfileScreen() {
     setSaving(true)
     // Nur Felder senden, die Member ändern dürfen
     const payload: any = {
-      auth_user_id: uid,
+      // auth_user_id: uid, // Nicht nötig bei update
       first_name: form.first_name?.trim() || null,
       last_name: form.last_name?.trim() || null,
       title: form.title?.trim() || null,
@@ -162,7 +162,12 @@ export default function ProfileScreen() {
       payload.middle_name = form.middle_name?.trim() || null
     }
 
-    const { error } = await supabase.from('profiles').upsert(payload, { onConflict: 'auth_user_id' })
+    // FIX: .update() statt .upsert() nutzen, da RLS nur UPDATE erlaubt
+    const { error } = await supabase
+      .from('profiles')
+      .update(payload)
+      .eq('auth_user_id', uid)
+
     setSaving(false)
     if (error) setError(error.message)
     else setMessage('Profil gespeichert.')
@@ -195,7 +200,7 @@ export default function ProfileScreen() {
     setAvatarPreviewUri(res.assets[0].uri)
   }
 
-  // Upload + in profiles.avatar_url speichern (RN-stabil via arrayBuffer) + sofortige Anzeige
+  // Upload + in profiles.avatar_url speichern
   async function uploadAvatarAndSave() {
     setError(''); setMessage('')
     if (!avatarPreviewUri) { setError('Kein Bild ausgewählt.'); return }
@@ -207,11 +212,11 @@ export default function ProfileScreen() {
     try {
       setSaving(true); setMessage('Lade Bild hoch …')
 
-      // Datei in ArrayBuffer lesen (robuster als blob() in RN)
+      // Datei in ArrayBuffer lesen
       const resp = await fetch(avatarPreviewUri)
       const arrayBuffer = await resp.arrayBuffer()
 
-      // Content-Type aus Dateiendung ableiten, Default: jpeg
+      // Content-Type
       const extFromUri = (avatarPreviewUri.split('.').pop() || '').toLowerCase()
       const ext = ['png','jpg','jpeg','webp','heic','heif'].includes(extFromUri) ? extFromUri : 'jpg'
       const ct = ext === 'png' ? 'image/png'
@@ -221,6 +226,7 @@ export default function ProfileScreen() {
 
       const path = `${uid}/${Date.now()}.${ext}`
 
+      // 1. Upload
       const { error: upErr } = await supabase
         .storage
         .from('avatars')
@@ -228,16 +234,19 @@ export default function ProfileScreen() {
 
       if (upErr) { setSaving(false); setError(upErr.message); return }
 
-      // Pfad im Profil speichern
+      // 2. Pfad im Profil speichern
+      // FIX: .update() statt .upsert()
       const { error: profErr } = await supabase
         .from('profiles')
-        .upsert({ auth_user_id: uid, avatar_url: path }, { onConflict: 'auth_user_id' })
+        .update({ avatar_url: path })
+        .eq('auth_user_id', uid)
+
       if (profErr) { setSaving(false); setError(profErr.message); return }
 
-      // Form aktualisieren → publicAvatarUrl wird mit Cache-Buster neu berechnet
+      // Form aktualisieren
       setForm(f => ({ ...f, avatar_url: path }))
 
-      // Sofortige Anzeige noch in dieser Ansicht:
+      // Sofortige Anzeige
       const { data } = supabase.storage.from('avatars').getPublicUrl(path)
       setAvatarPreviewUri(`${data.publicUrl}?v=${Date.now()}`)
 
@@ -274,7 +283,7 @@ export default function ProfileScreen() {
         ? 'Zugriffsrechte: SuperUser'
         : 'Zugriffsrechte: DAU'
 
-  // --- einfache, native-sichere Auswahl für Degree statt Picker ---
+  // Degree Choice
   const DegreeChoice = ({ value, onChange }: { value: Degree; onChange: (v: Degree) => void }) => {
     const Item = ({ v, label }: { v: Degree; label: string }) => {
       const active = value === v
@@ -313,7 +322,6 @@ export default function ProfileScreen() {
       >
         <Text style={type.h1}>Mein Profil</Text>
 
-        {/* Spacer */}
         <View style={{ height: 12 }} />
 
         {/* Avatar-Card */}
@@ -344,7 +352,6 @@ export default function ProfileScreen() {
             </View>
           )}
 
-          {/* Buttons in einer Zeile mit Abständen */}
           <View style={{ flexDirection: 'row', marginTop: 10 }}>
             <View style={{ marginRight: 8 }}>
               <Button title="Foto wählen" onPress={pickFromLibrary} />
@@ -358,7 +365,6 @@ export default function ProfileScreen() {
           <Button title="Avatar hochladen & speichern" onPress={uploadAvatarAndSave} disabled={saving || !avatarPreviewUri} />
         </View>
 
-        {/* Spacer */}
         <View style={{ height: 12 }} />
 
         {/* Form-Card */}
@@ -415,7 +421,6 @@ export default function ProfileScreen() {
           />
 
           <View style={{ height: 12 }} />
-          {/* Umbenannt: Steinmetz Dienstgrad (DB-Feld bleibt title) */}
           <Text style={type.h2}>Steinmetz Dienstgrad</Text>
           <TextInput
             value={form.title ?? ''}
@@ -452,7 +457,6 @@ export default function ProfileScreen() {
           />
 
           <View style={{ height: 12 }} />
-          {/* Umbenannt: Lebensweisheit + Hinweis */}
           <Text style={type.h2}>Lebensweisheit</Text>
           <Text style={{ ...type.caption, color: '#9aa0a6', marginTop: -2, marginBottom: 2 }}>
             max. 500 Zeichen
@@ -471,7 +475,6 @@ export default function ProfileScreen() {
           />
 
           <View style={{ height: 12 }} />
-          {/* is_active */}
           <View
             style={{
               flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -487,7 +490,6 @@ export default function ProfileScreen() {
           </View>
 
           <View style={{ height: 12 }} />
-          {/* Dauerauftrag */}
           <View
             style={{
               flexDirection: 'row',
@@ -508,7 +510,6 @@ export default function ProfileScreen() {
           </View>
 
           <View style={{ height: 12 }} />
-          {/* Eigenkontrolle / Verknüpfung */}
           <View
             style={{
               flexDirection: 'row',
@@ -539,10 +540,8 @@ export default function ProfileScreen() {
           {error ? <Text style={{ ...type.body, color: colors.red, marginTop: 4 }}>{error}</Text> : null}
         </View>
 
-        {/* Spacer */}
         <View style={{ height: 12 }} />
 
-        {/* Admin-Bereich: nur für SuperUser/Admin */}
         {canSeeAdminLinks && (
           <View
             style={{
@@ -582,7 +581,6 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* Footer – Zugriffsrechte je nach Rolle */}
         <View style={{ height: 8 }} />
         <Text
           style={{
