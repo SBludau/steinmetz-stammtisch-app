@@ -342,53 +342,91 @@ export default function HomeScreen() {
 
   const renderItem = ({ item }: { item: Row }) => {
     const birthdays = birthdayRowsFor(item.date)
+    const isToday = item.date === todayStr // Prüfen ob heute
 
     return (
       <Pressable
         onPress={() => router.push({ pathname: '/(tabs)/stammtisch/[id]', params: { id: String(item.id) } })}
-        style={{
-          padding: 8,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-          gap: 6,
-        }}
+        style={({ pressed }) => ({
+          backgroundColor: colors.cardBg, // Karte-Look
+          borderRadius: radius.md,
+          padding: 16,
+          marginBottom: 12,
+          borderWidth: isToday ? 2 : 1, // Dickerer Rand für heute
+          borderColor: isToday ? colors.gold : colors.border, // Gold für heute, sonst Standard
+          opacity: pressed ? 0.8 : 1, // Feedback
+          
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.3,
+          shadowRadius: 4,
+          elevation: 3,
+        })}
       >
-        <Text style={type.body}>{item.date} • {item.location}</Text>
-
-        {birthdays.length > 0 ? (
-          <View style={{ gap: 4 }}>
-            <Text style={type.caption}>Geburtstags-Runden {germanMonthYear(item.date)}:</Text>
-            {birthdays.map(p => (
-              <View key={p.auth_user_id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                {avatarFor(p) ? (
-                  <Image
-                    source={{ uri: avatarFor(p)! }}
-                    style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: colors.border }}
-                  />
-                ) : (
-                  <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: colors.border }} />
-                )}
-                <Text style={type.body}>
-                  {shortName(p)} — {germanDateShort(p.birthday!)} ({ageOnDate(p.birthday!, item.date)})
-                </Text>
+        {/* LINKER BEREICH */}
+        <View style={{ flex: 1, gap: 6 }}>
+          
+          {/* Datum + Badge */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Text style={{ ...type.h2, fontSize: 18 }}>
+              {germanDate(item.date)}
+            </Text>
+            
+            {isToday && (
+              <View style={{ 
+                backgroundColor: colors.gold, 
+                paddingHorizontal: 8, 
+                paddingVertical: 2, 
+                borderRadius: 4 
+              }}>
+                <Text style={{ color: colors.bg, fontWeight: 'bold', fontSize: 12 }}>HEUTE</Text>
               </View>
-            ))}
+            )}
           </View>
-        ) : null}
+
+          <Text style={{ ...type.body, color: '#ccc' }}>{item.location}</Text>
+
+          {birthdays.length > 0 ? (
+            <View style={{ marginTop: 6, gap: 4 }}>
+              <Text style={{ ...type.caption, color: colors.gold }}>Geburtstags-Runden {germanMonthYear(item.date)}:</Text>
+              {birthdays.map(p => (
+                <View key={p.auth_user_id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {avatarFor(p) ? (
+                    <Image
+                      source={{ uri: avatarFor(p)! }}
+                      style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: colors.border }}
+                    />
+                  ) : (
+                    <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: colors.border, backgroundColor: '#333' }} />
+                  )}
+                  <Text style={type.body}>
+                    {shortName(p)} — {germanDateShort(p.birthday!)} ({ageOnDate(p.birthday!, item.date)})
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+
+        {/* RECHTER BEREICH: PFEIL */}
+        <View style={{ paddingLeft: 10 }}>
+          <Text style={{ color: isToday ? colors.gold : '#666', fontSize: 24, fontWeight: 'bold' }}>
+            ›
+          </Text>
+        </View>
+
       </Pressable>
     )
   }
 
   const SectionBox = ({ children }: { children: React.ReactNode }) => (
-    <View
-      style={{
-        borderRadius: radius.md,
-        backgroundColor: colors.cardBg,
-        borderWidth: 1,
-        borderColor: colors.border,
-        padding: 8,
-      }}
-    >
+    // Die SectionBox für die Liste selbst braucht kein Styling mehr, da die Items jetzt Karten sind.
+    // Wir rendern children einfach direkt oder in einem Container ohne Rand.
+    <View style={{ marginBottom: 12 }}>
       {children}
     </View>
   )
@@ -465,12 +503,12 @@ export default function HomeScreen() {
           </View>
         </Pressable>
 
-        {/* Tabs (2/3 : 1/3) */}
+        {/* Tabs (1 : 1) - gleich breit */}
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
           <Pressable
             onPress={() => setActiveTab('upcoming')}
             style={{
-              flex: 2,
+              flex: 1, // BEIDE auf flex: 1 für gleiche Breite
               padding: 12,
               borderRadius: radius.md,
               borderWidth: 1,
@@ -487,7 +525,7 @@ export default function HomeScreen() {
           <Pressable
             onPress={() => setActiveTab('past')}
             style={{
-              flex: 1,
+              flex: 1, // BEIDE auf flex: 1 für gleiche Breite
               padding: 12,
               borderRadius: radius.md,
               borderWidth: 1,
@@ -506,7 +544,9 @@ export default function HomeScreen() {
         {activeTab === 'upcoming' ? (
           <SectionBox>
             {upcoming.length === 0 ? (
-              <Text style={type.body}>Keine Einträge.</Text>
+              <View style={{ padding: 12, backgroundColor: colors.cardBg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                 <Text style={type.body}>Keine Einträge.</Text>
+              </View>
             ) : (
               <View>{upcoming.map(item => <View key={item.id}>{renderItem({ item })}</View>)}</View>
             )}
@@ -514,7 +554,9 @@ export default function HomeScreen() {
         ) : (
           <SectionBox>
             {past.length === 0 ? (
-              <Text style={type.body}>Keine Einträge.</Text>
+              <View style={{ padding: 12, backgroundColor: colors.cardBg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                 <Text style={type.body}>Keine Einträge.</Text>
+              </View>
             ) : (
               <View>{past.map(item => <View key={item.id}>{renderItem({ item })}</View>)}</View>
             )}
