@@ -1,5 +1,5 @@
 // app/(tabs)/index.tsx
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { View, Text, Image, Pressable, ScrollView, TextInput, Alert, Platform, Linking } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
@@ -190,12 +190,17 @@ export default function HomeScreen() {
   // ---- NEU: State für GitHub Info ----
   const [githubInfo, setGithubInfo] = useState<string>('Lade Daten...')
 
+  // ---- NEU: Furtz-Box State ----
+  const [fartCollapsed, setFartCollapsed] = useState(true)
+  const [timerActive, setTimerActive] = useState(false)
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
+
   // ---- NEU: GitHub Stats laden ----
   useEffect(() => {
     fetchGitHubStats().then(setGithubInfo)
   }, [])
 
-  // ---- NEU: Furz abspielen Funktion ----
+  // ---- NEU: Furz abspielen Funktion (Sofort) ----
   const playRandomFart = async () => {
     try {
       // 1. Zufälligen Index wählen
@@ -208,6 +213,36 @@ export default function HomeScreen() {
       console.log('Konnte Sound nicht abspielen', error)
     }
   }
+
+  // ---- NEU: Zufalls-Timer Funktion ----
+  const toggleRandomTimer = () => {
+    if (timerActive) {
+      // Stoppen
+      if (timerRef.current) clearTimeout(timerRef.current)
+      setTimerActive(false)
+      Alert.alert('Abgebrochen', 'Die Gefahr ist vorüber.')
+    } else {
+      // Starten
+      const minSec = 10
+      const maxSec = 3600
+      const seconds = Math.floor(Math.random() * (maxSec - minSec + 1) + minSec)
+      
+      setTimerActive(true)
+      
+      timerRef.current = setTimeout(() => {
+        playRandomFart()
+        setTimerActive(false)
+        Alert.alert('Ups', 'Das war wohl nichts.')
+      }, seconds * 1000)
+    }
+  }
+
+  // Timer Cleanup
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
 
   // Session prüfen
   useFocusEffect(
@@ -762,26 +797,69 @@ export default function HomeScreen() {
           )}
         </Pressable>
 
-        {/* ---- NEU: Furtz Button ---- */}
-        <View style={{ marginTop: 24, alignItems: 'center' }}>
-          <Pressable 
-            onPress={playRandomFart}
-            style={({pressed}) => ({
-              backgroundColor: '#3e3e3e',
-              width: 50,
-              height: 50,
-              borderRadius: 25,
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: pressed ? 0.7 : 1,
-              borderWidth: 1,
-              borderColor: '#555'
-            })}
-          >
+        {/* ---- NEU: Druckabbau Box (Collapsible) ---- */}
+        <Pressable
+          onPress={() => setFartCollapsed(!fartCollapsed)}
+          style={{
+            marginTop: 12,
+            borderRadius: radius.md,
+            backgroundColor: colors.cardBg,
+            borderWidth: 1,
+            borderColor: colors.border,
+            padding: 12,
+          }}
+        >
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ ...type.h2, fontSize: 18 }}>
+              Druckabbau
+            </Text>
             <Text style={{ fontSize: 24 }}>💨</Text>
-          </Pressable>
-          <Text style={{ ...type.caption, fontSize: 10, marginTop: 4, color: '#666' }}>Druckabbau</Text>
-        </View>
+          </View>
+
+          {/* Content */}
+          {!fartCollapsed && (
+            <View style={{ marginTop: 12, flexDirection: 'row', gap: 12 }}>
+              {/* Button 1: Sofort */}
+              <Pressable
+                onPress={playRandomFart}
+                style={({pressed}) => ({
+                  flex: 1,
+                  backgroundColor: colors.bg,
+                  borderWidth: 1,
+                  borderColor: colors.gold,
+                  borderRadius: radius.md,
+                  padding: 16,
+                  alignItems: 'center',
+                  opacity: pressed ? 0.7 : 1
+                })}
+              >
+                <Text style={{ fontSize: 32 }}>💨</Text>
+                <Text style={{ ...type.caption, color: colors.gold, marginTop: 4 }}>Sofort</Text>
+              </Pressable>
+
+              {/* Button 2: Zufall */}
+              <Pressable
+                onPress={toggleRandomTimer}
+                style={({pressed}) => ({
+                  flex: 1,
+                  backgroundColor: timerActive ? '#500' : colors.bg, // Rot wenn aktiv
+                  borderWidth: 1,
+                  borderColor: timerActive ? 'red' : '#666',
+                  borderRadius: radius.md,
+                  padding: 16,
+                  alignItems: 'center',
+                  opacity: pressed ? 0.7 : 1
+                })}
+              >
+                <Text style={{ fontSize: 32 }}>{timerActive ? '🛑' : '🎲'}</Text>
+                <Text style={{ ...type.caption, color: timerActive ? 'red' : '#ccc', marginTop: 4 }}>
+                  {timerActive ? 'Stop' : 'Zufall'}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+        </Pressable>
 
         {/* ---- NEU: GitHub Stats & Bug Report ---- */}
         <View style={{ marginTop: 24, marginBottom: 8, alignItems: 'center' }}>
