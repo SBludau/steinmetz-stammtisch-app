@@ -47,22 +47,45 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
-  // >>> NEU: nach erfolgreichem Login automatisch weiterleiten (kein 2. Klick nötig)
+  // >>> NEU: Weiche mit Profil-Check
   useEffect(() => {
     let mounted = true
 
+    const checkProfileAndRedirect = async (session: any) => {
+      if (!session?.user) return
+
+      // Prüfen, ob ein Profil existiert
+      const { data } = await supabase
+        .from('profiles')
+        .select('auth_user_id')
+        .eq('auth_user_id', session.user.id)
+        .maybeSingle()
+
+      if (!mounted) return
+
+      if (data) {
+        // Profil existiert -> Rein in die App
+        router.replace('/')
+      } else {
+        // Kein Profil -> Ab zur Auswahlseite
+        router.replace('/claim-profile')
+      }
+    }
+
+    // 1. Check beim Laden
     ;(async () => {
       const { data } = await supabase.auth.getSession()
       if (mounted && data?.session) {
-        router.replace('/')
+        await checkProfileAndRedirect(data.session)
       }
     })()
 
+    // 2. Check bei Login-Event
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
-        router.replace('/')
+        checkProfileAndRedirect(session)
       }
     })
 
@@ -81,7 +104,6 @@ export default function LoginScreen() {
 
       const inExpoGo = Constants.appOwnership === 'expo'
 
-      // Expo Go: OAuth nicht unterstützt -> klare Meldung
       if (!Platform.OS === 'web' && inExpoGo) {
         Alert.alert(
           'Google-Login in Expo Go nicht möglich',
@@ -90,7 +112,6 @@ export default function LoginScreen() {
         return
       }
 
-      // Redirect ohne Proxy:
       const redirectTo =
         Platform.OS === 'web'
           ? `${window.location.origin}/auth-callback`
@@ -108,19 +129,13 @@ export default function LoginScreen() {
       if (error) throw error
       if (!data?.url) throw new Error('Keine OAuth-URL erhalten.')
 
-      console.log('appOwnership =', Constants.appOwnership)
-      console.log('redirectTo =', redirectTo)
-      console.log('returnUrl =', returnUrl)
-      console.log('authUrl =', data.url)
-
       if (Platform.OS === 'web') {
         window.location.href = data.url
       } else {
-        // Dev/Prod (mit eigenem Scheme)
         const res = await WebBrowser.openAuthSessionAsync(data.url, returnUrl)
         if (res.type === 'success' && res.url) {
-          const ok = await createSessionFromUrl(res.url)
-          if (ok) router.replace('/')
+          await createSessionFromUrl(res.url)
+          // useEffect übernimmt das Redirecting
         }
       }
     } catch (e: any) {
@@ -174,7 +189,6 @@ export default function LoginScreen() {
         )}
       </Pressable>
 
-      {/* Kleingedrucktes unter dem Button */}
       <Text
         style={{
           textAlign: 'center',
@@ -185,10 +199,10 @@ export default function LoginScreen() {
           fontFamily: type.body.fontFamily ?? undefined,
         }}
       >
-        Wir speichern keine Daten in der App – und kein Passwort. Über Google kommt nur ein „Okay, ich bin’s“. In der App stehen nur harmlose Sachen wie Stammtisch-Termine – keine persönlichen Daten.
+        Wir speichern keine Daten in der App – und kein Passwort. Über Google kommt nur ein „Okay, ich bin’s“.
       </Text>
 
-      {/* Email/Passwort – unverändert */}
+      {/* Email/Passwort */}
       {err && (
         <Text style={{ color: 'red', marginBottom: 10, textAlign: 'center' }}>{err}</Text>
       )}
@@ -232,7 +246,7 @@ export default function LoginScreen() {
             setErr(null)
             const { error } = await supabase.auth.signInWithPassword({ email, password })
             if (error) throw error
-            router.replace('/')
+            // useEffect übernimmt Redirecting
           } catch (e: any) {
             console.error('Email Login Fehler:', e.message)
             setErr(e.message)

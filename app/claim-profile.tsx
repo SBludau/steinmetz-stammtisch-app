@@ -1,9 +1,10 @@
+// app/claim-profile.tsx
 import { useEffect, useState } from 'react'
 import { View, Text, Image, ScrollView, Button, TouchableOpacity, ActivityIndicator, Alert } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../src/lib/supabase'
-import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../src/components/BottomNav'
+// BottomNav entfernt, da User ohne Profil nicht navigieren darf
 import { colors, radius } from '../src/theme/colors'
 import { type } from '../src/theme/typography'
 
@@ -53,6 +54,12 @@ export default function ClaimProfileScreen() {
     const degPrefix = deg === 'dr' ? 'Dr. ' : deg === 'prof' ? 'Prof. ' : ''
     const mid = r.middle_name ? ` ${r.middle_name}` : ''
     return `${degPrefix}${r.first_name ?? ''}${mid} ${r.last_name ?? ''}`.trim()
+  }
+
+  // NEU: Logout-Funktion statt "Zurück"
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    router.replace('/login')
   }
 
   async function loadData() {
@@ -160,7 +167,7 @@ export default function ClaimProfileScreen() {
         } as any)
 
       if (insErr) {
-        // 23505 = unique_violation (z. B. bereits bestehender pending/approved Claim)
+        // 23505 = unique_violation
         if ((insErr as any).code === '23505') {
           setMessage('Es existiert bereits eine aktive Anfrage für dieses Profil.')
         } else {
@@ -212,15 +219,16 @@ export default function ClaimProfileScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView
-        style={{ marginBottom: insets.bottom + NAV_BAR_BASE_HEIGHT }}
+        // Padding unten angepasst, da keine BottomNav mehr
+        style={{ marginBottom: insets.bottom }}
         contentContainerStyle={{ padding: 16, gap: 12 }}
         persistentScrollbar
         indicatorStyle="white"
         showsVerticalScrollIndicator
       >
-        <Text style={type.h1}>Profil auswählen</Text>
+        <Text style={type.h1}>Profil verknüpfen</Text>
         <Text style={{ ...type.body, color: '#bfbfbf' }}>
-          Wähle dein vorhandenes Profil und sende eine Anfrage. Ein Admin/SuperUser bestätigt die Verknüpfung.
+          Dein Google-Login war erfolgreich, aber noch keinem Stammtisch-Profil zugeordnet. Bitte wähle dein Profil:
         </Text>
 
         {!anyRows && (
@@ -234,7 +242,7 @@ export default function ClaimProfileScreen() {
             }}
           >
             <Text style={type.body}>
-              Es sind keine Profile sichtbar.
+              Es sind keine freien Profile sichtbar. Bitte Admin kontaktieren.
             </Text>
           </View>
         )}
@@ -309,20 +317,21 @@ export default function ClaimProfileScreen() {
           )
         })}
 
-        <View style={{ gap: 10, marginTop: 8 }}>
+        <View style={{ gap: 10, marginTop: 8, marginBottom: 20 }}>
           <Button
             title={submitting ? 'Sende Anfrage…' : 'Anfrage zur Verknüpfung senden'}
             onPress={submitClaim}
             disabled={submitting || !selectedId}
           />
-          <Button title="Zurück" onPress={() => router.back()} />
+          {/* Geändert: Abmelden statt Zurück */}
+          <Button title="Abmelden (Anderes Konto)" onPress={handleLogout} color={colors.red || 'red'} />
         </View>
 
         {message ? <Text style={{ ...type.body, color: colors.gold }}>{message}</Text> : null}
         {error ? <Text style={{ ...type.body, color: colors.red }}>{error}</Text> : null}
       </ScrollView>
 
-      <BottomNav />
+      {/* Keine BottomNav hier! */}
     </View>
   )
 }
