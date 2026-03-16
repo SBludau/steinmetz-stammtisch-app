@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(winget --version)",
+      "Bash(eas --version)",
+      "Bash(adb --version)",
+      "Bash(npm install:*)",
+      "Bash(winget install:*)",
+      "Bash(powershell -Command \"[System.Environment]::SetEnvironmentVariable\\(''ANDROID_HOME'', ''C:\\\\Users\\\\Sebastian Bludau\\\\AppData\\\\Local\\\\Android\\\\Sdk'', ''User''\\)\")",
+      "Bash(powershell -Command \":*)",
+      "Bash(powershell -Command \"[System.Environment]::GetEnvironmentVariable\\(''ANDROID_HOME'', ''User''\\)\")",
+      "Bash(npm ci:*)",
+      "Bash(npx expo:*)",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); deps={**d.get\\(''''dependencies'''',{}\\), **d.get\\(''''devDependencies'''',{}\\)}; [print\\(k,v\\) for k,v in deps.items\\(\\)]\")",
+      "Bash(powershell.exe -Command \":*)",
+      "Bash(python -c \"import json; d=json.load\\(open\\(''app.json''\\)\\); print\\(''Name:'', d[''expo''].get\\(''name''\\)\\); print\\(''Slug:'', d[''expo''].get\\(''slug''\\)\\); print\\(''EAS ID:'', d[''expo''].get\\(''extra'', {}\\).get\\(''eas'', {}\\).get\\(''projectId'', ''NICHT GESETZT''\\)\\)\")",
+      "Bash(powershell.exe -Command \"& ''C:\\\\Users\\\\Sebastian Bludau\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe'' devices\")",
+      "Bash(powershell.exe -Command \"& ''C:\\\\Users\\\\Sebastian Bludau\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe'' install ''C:\\\\Users\\\\Sebastian Bludau\\\\Downloads\\\\application-a6b5cbfd-e249-4b32-9297-cabc51769679.apk''\")",
+      "Bash(powershell.exe -Command \"& ''C:\\\\Users\\\\Sebastian Bludau\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe'' install ''C:\\\\Users\\\\Sebastian Bludau\\\\AppData\\\\Local\\\\Temp\\\\eas-cli-nodejs\\\\eas-build-run-cache\\\\333c92f5-6dd8-4ff8-813a-a846668c3be3_9abc537e-ed5c-4dd3-b4a4-d68e1699c703.apk''\")"
+    ]
+  }
+}
