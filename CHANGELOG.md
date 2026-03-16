@@ -7,8 +7,24 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ### Geplant
 - App Layout Feinschliff (Abstände, responsives Verhalten, Accessibility Labels)
-- Wichtige Tools: Stein–Schere–Papier, Münzwurf und Vegas Counter „Schwarz/Rot“ mit Max-Counter für Stats
+- Wichtige Tools: Stein–Schere–Papier, Münzwurf und Vegas Counter „Schwarz/Rot” mit Max-Counter für Stats
 - Google Auth-Login Display überprüfen/vereinheitlichen
+
+---
+
+## [0.4.2] - 2026-03-16
+
+**Geänderte Dateien**
+- `app/(tabs)/stats.tsx`
+- `.gitignore`
+- `README.md`
+
+### Behoben
+- **Statistik – Runden am selben Abend nicht sichtbar:** Zeitzonenfehler in `stats.tsx` behoben. Die Berechnung der oberen Zeitgrenze (`endApprovedExclusive`) nutzte `new Date(lokal morgen).getUTCDate()`, was in Deutschland (UTC+1) noch das heutige UTC-Datum lieferte. Runden die nach Mitternacht UTC eingetragen wurden (also z.B. ab 01:00 Uhr Ortszeit) waren erst am Folgetag in der Statistik sichtbar. Fix: Tag-Addition jetzt direkt in UTC via `Date.UTC()`.
+
+### Sonstiges
+- `.gitignore` um Datenbank-Backup-Dateien (`supabase-backup-*.json`) erweitert
+- `README.md` mit Supabase Live-Datenbankzugriff-Doku für KI-Entwicklung ergänzt
 
 ## [Web-Release] - 2025-16.12
 
