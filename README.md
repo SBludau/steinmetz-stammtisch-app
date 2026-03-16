@@ -392,13 +392,64 @@ Das Design darf **nicht ohne Absprache** geändert werden!
 
 ---
 
+## 🗄️ Supabase Live-Datenbankzugriff (für KI-Entwicklung)
+
+Für die KI-gestützte Entwicklung (Claude Code) ist ein direkter Datenbankzugriff eingerichtet.
+
+### Verbindung
+
+- **URL:** `https://bcbqnkycjroiskwqcftc.supabase.co`
+- **Key:** Service-Role-Key (lokal in `.env.local` gespeichert – **nicht auf GitHub!**)
+- **Datei:** `F:\GitHub\steinmetz-stammtisch-app\.env.local`
+
+### Abfrage-Methode (curl)
+
+```bash
+SUPA_URL="https://bcbqnkycjroiskwqcftc.supabase.co"
+SUPA_KEY="<service_role_key aus .env.local>"
+
+# Beispiel: Alle Profile
+curl -s "$SUPA_URL/rest/v1/profiles?select=*" \
+  -H "apikey: $SUPA_KEY" \
+  -H "Authorization: Bearer $SUPA_KEY"
+```
+
+### Live-Datenbankstruktur (Stand 16.03.2026)
+
+**Mitglieder (14 Profile):**
+
+| Name | Rolle | Aktiv | Dauerauftrag |
+|---|---|---|---|
+| Sebastian Bludau | admin | ✅ | ✅ |
+| Timo Glantschnig | superuser | ✅ | ✅ |
+| Andi Fröge | member | ✅ | ✅ |
+| Bert Konijnenberg | member | ✅ | ✅ |
+| Fobbs XX | member | ✅ | ✅ |
+| Marcel Neumann | member | ✅ | ✅ |
+| Martin Maas | member | ✅ | ✅ (Dr.) |
+| Mathi Düllmann | member | ✅ | ✅ |
+| Torben Katzmann | member | ✅ | ✅ |
+| Dani Schulte | member | ✅ | ❌ |
+| Ingo Mass | member | ✅ | ❌ |
+| Markus Hochheiser | member | ❌ | ❌ |
+| Thorsten Eberhartinger | member | ❌ | ❌ |
+| Torben Meiss | member | ❌ | ❌ |
+
+**Vegas-Kasse:**
+- Startbetrag: **-878 €** (01.09.2025)
+- Monatlicher Zuwachs: 20 € × Anzahl aktiver Daueraufträge
+
+**Nächster Stammtisch:** 10.04.2026, Bahnhof Dickscheheide
+
+---
+
 ## ⚙️ Konfiguration (Auth & Supabase)
 
 ### Supabase-Projekt
 
 - **URL:** `https://bcbqnkycjroiskwqcftc.supabase.co`
 - **Anon-Key:** In `src/lib/supabase.ts` (öffentlich, sicher im Frontend)
-- **Service-Role-Key:** ⚠️ Geheim! Nur für Edge Functions/Admin-Skripte, NIE im Frontend!
+- **Service-Role-Key:** ⚠️ Geheim! Lokal in `.env.local` (gitignored). NIE ins Frontend!
 
 ### Auth Redirect URLs
 

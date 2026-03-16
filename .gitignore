@@ -22,6 +22,9 @@ Thumbs.db
 .env.*
 !.env.example
 
+# Datenbank-Backups (enthalten echte Nutzerdaten, NICHT auf GitHub!)
+supabase-backup-*.json
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

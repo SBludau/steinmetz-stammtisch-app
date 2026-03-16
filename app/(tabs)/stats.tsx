@@ -237,10 +237,15 @@ export default function StatsScreen() {
   const startApprovedInclusive = useMemo(() => `${startDate}T00:00:00Z`, [startDate])
   const endApprovedExclusive = useMemo(() => {
     if (selectedYear === CURRENT_YEAR) {
-      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
-      const y = next.getUTCFullYear()
-      const m = pad(next.getUTCMonth() + 1)
-      const d = pad(next.getUTCDate())
+      // todayYMD enthält das lokale Datum (YYYY-MM-DD).
+      // Wir addieren 1 Tag rein in UTC – so vermeiden wir den Fehler,
+      // bei dem new Date(local tomorrow).getUTCDate() noch "heute" liefert
+      // (weil z.B. 14. März 00:00 CET = 13. März 23:00 UTC → UTC-Tag = 13).
+      const [ty, tm, td] = todayYMD.split('-').map(Number)
+      const nextUTC = new Date(Date.UTC(ty, tm - 1, td + 1))
+      const y = nextUTC.getUTCFullYear()
+      const m = pad(nextUTC.getUTCMonth() + 1)
+      const d = pad(nextUTC.getUTCDate())
       return `${y}-${m}-${d}T00:00:00Z`
     } else {
       return `${selectedYear + 1}-01-01T00:00:00Z`
