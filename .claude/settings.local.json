@@ -16,7 +16,25 @@
       "Bash(python -c \"import json; d=json.load\\(open\\(''app.json''\\)\\); print\\(''Name:'', d[''expo''].get\\(''name''\\)\\); print\\(''Slug:'', d[''expo''].get\\(''slug''\\)\\); print\\(''EAS ID:'', d[''expo''].get\\(''extra'', {}\\).get\\(''eas'', {}\\).get\\(''projectId'', ''NICHT GESETZT''\\)\\)\")",
       "Bash(powershell.exe -Command \"& ''C:\\\\Users\\\\Sebastian Bludau\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe'' devices\")",
       "Bash(powershell.exe -Command \"& ''C:\\\\Users\\\\Sebastian Bludau\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe'' install ''C:\\\\Users\\\\Sebastian Bludau\\\\Downloads\\\\application-a6b5cbfd-e249-4b32-9297-cabc51769679.apk''\")",
-      "Bash(powershell.exe -Command \"& ''C:\\\\Users\\\\Sebastian Bludau\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe'' install ''C:\\\\Users\\\\Sebastian Bludau\\\\AppData\\\\Local\\\\Temp\\\\eas-cli-nodejs\\\\eas-build-run-cache\\\\333c92f5-6dd8-4ff8-813a-a846668c3be3_9abc537e-ed5c-4dd3-b4a4-d68e1699c703.apk''\")"
+      "Bash(powershell.exe -Command \"& ''C:\\\\Users\\\\Sebastian Bludau\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe'' install ''C:\\\\Users\\\\Sebastian Bludau\\\\AppData\\\\Local\\\\Temp\\\\eas-cli-nodejs\\\\eas-build-run-cache\\\\333c92f5-6dd8-4ff8-813a-a846668c3be3_9abc537e-ed5c-4dd3-b4a4-d68e1699c703.apk''\")",
+      "mcp__mcp-registry__search_mcp_registry",
+      "Bash(curl -s \"https://bcbqnkycjroiskwqcftc.supabase.co/rest/v1/profiles?select=id,full_name,role&limit=3\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjYnFua3ljanJvaXNrd3FjZnRjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjkwMzczNywiZXhwIjoyMDcyNDc5NzM3fQ.oswp0bZjOVx0mVc9i1O4VVj0_btBmAlzi8jIU9ROf1s\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjYnFua3ljanJvaXNrd3FjZnRjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjkwMzczNywiZXhwIjoyMDcyNDc5NzM3fQ.oswp0bZjOVx0mVc9i1O4VVj0_btBmAlzi8jIU9ROf1s\")",
+      "Bash(curl -s \"https://bcbqnkycjroiskwqcftc.supabase.co/rest/v1/profiles?limit=1\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjYnFua3ljanJvaXNrd3FjZnRjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjkwMzczNywiZXhwIjoyMDcyNDc5NzM3fQ.oswp0bZjOVx0mVc9i1O4VVj0_btBmAlzi8jIU9ROf1s\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjYnFua3ljanJvaXNrd3FjZnRjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjkwMzczNywiZXhwIjoyMDcyNDc5NzM3fQ.oswp0bZjOVx0mVc9i1O4VVj0_btBmAlzi8jIU9ROf1s\")",
+      "Bash(SUPA_URL=\"https://bcbqnkycjroiskwqcftc.supabase.co\")",
+      "Bash(SUPA_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjYnFua3ljanJvaXNrd3FjZnRjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjkwMzczNywiZXhwIjoyMDcyNDc5NzM3fQ.oswp0bZjOVx0mVc9i1O4VVj0_btBmAlzi8jIU9ROf1s\")",
+      "Bash(__NEW_LINE_fa757912c8a75cbd__ echo:*)",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/profiles?select=id,first_name,last_name,role,is_active,standing_order,degree\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/stammtisch?select=*&order=date.desc&limit=5\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/app_settings?select=*\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(__NEW_LINE_05e311222e1258f2__ echo:*)",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/birthday_rounds?limit=3\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/stammtisch_participants?limit=3\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/profile_claims?limit=3\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(__NEW_LINE_37c97e65386f6ba2__ echo:*)",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/birthday_rounds?select=*&first_due_stammtisch_id=eq.31\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/birthday_rounds?select=id,profile_id,created_at,approved_at,settled_at,settled_stammtisch_id,first_due_stammtisch_id\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(find F:/GitHub/steinmetz-stammtisch-app/src F:/GitHub/steinmetz-stammtisch-app/app -type f -name *.ts -o -name *.tsx)",
+      "Bash(xargs grep:*)"
     ]
   }
 }
