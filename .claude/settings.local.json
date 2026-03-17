@@ -34,7 +34,24 @@
       "Bash(curl -s \"$SUPA_URL/rest/v1/birthday_rounds?select=*&first_due_stammtisch_id=eq.31\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
       "Bash(curl -s \"$SUPA_URL/rest/v1/birthday_rounds?select=id,profile_id,created_at,approved_at,settled_at,settled_stammtisch_id,first_due_stammtisch_id\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
       "Bash(find F:/GitHub/steinmetz-stammtisch-app/src F:/GitHub/steinmetz-stammtisch-app/app -type f -name *.ts -o -name *.tsx)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(__NEW_LINE_02ef65e2c9c8f401__ echo:*)",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/birthday_rounds?select=*&order=id.asc\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/stammtisch?select=id,date,location&order=date.asc\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(__NEW_LINE_ee0f353433005c4e__ echo:*)",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/spender_rounds?select=*&order=id.asc\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/stammtisch_participants?stammtisch_id=eq.31&select=*\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/stammtisch_participants_unlinked?stammtisch_id=eq.31&select=*\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(__NEW_LINE_67007e70e421d207__ echo:*)",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/profiles?id=eq.85&select=id,first_name,last_name,auth_user_id,birthday,is_active\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/birthday_rounds?profile_id=eq.85&select=*&order=id.asc\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/spender_rounds?profile_id=eq.85&select=*\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/birthday_rounds?auth_user_id=is.null&select=id,profile_id,due_month,settled_stammtisch_id,approved_at&order=due_month.asc\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(SUPA_URL=\"https://bcbqnkycjroiskwqcftc.supabase.co\" SUPA_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjYnFua3ljanJvaXNrd3FjZnRjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjkwMzczNywiZXhwIjoyMDcyNDc5NzM3fQ.oswp0bZjOVx0mVc9i1O4VVj0_btBmAlzi8jIU9ROf1s\" __NEW_LINE_b73c84c27e17bbe3__ echo \"=== Ingo Mass \\(profile 89, unlinked\\) birthday ===\" curl -s \"$SUPA_URL/rest/v1/profiles?id=eq.89&select=id,first_name,last_name,auth_user_id,birthday\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\" __NEW_LINE_b73c84c27e17bbe3__ echo \"\" echo \"=== seed_birthday_rounds Funktion \\(aus DB Metadaten\\) ===\" curl -s \"$SUPA_URL/rest/v1/rpc/seed_birthday_rounds\" -X POST -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\" -H \"Content-Type: application/json\" -d '{\"\"\"\"p_due_month\"\"\"\":\"\"\"\"2099-01-01\"\"\"\",\"\"\"\"p_stammtisch_id\"\"\"\":99999}')",
+      "Bash(__NEW_LINE_ff7a1d3a57c67102__ echo:*)",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/spender_rounds?stammtisch_id=eq.31&select=id,profile_id,auth_user_id,approved_at\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/birthday_rounds?settled_stammtisch_id=eq.31&select=id,profile_id,auth_user_id,due_month,approved_at,settled_at\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")",
+      "Bash(curl -s \"$SUPA_URL/rest/v1/profiles?id=in.\\(85,57,86\\)&select=id,first_name,last_name\" -H \"apikey: $SUPA_KEY\" -H \"Authorization: Bearer $SUPA_KEY\")"
     ]
   }
 }
