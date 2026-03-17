@@ -11,7 +11,7 @@ import { colors, radius } from '../../src/theme/colors'
 import { type } from '../../src/theme/typography'
 
 // ---- Konfiguration ----
-const BUG_REPORT_URL = 'https://forms.gle/DeinKopierterCodeHier' // <--- HIER DEINEN LINK PRÜFEN
+const BUG_REPORT_URL = 'https://forms.gle/pJrbotLJWR3cv3ML8'
 
 // ---- Assets: Fürze (Genau deine Dateinamen) ----
 const FART_SOUNDS = [
