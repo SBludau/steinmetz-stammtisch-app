@@ -569,13 +569,15 @@ export default function HomeScreen() {
           backgroundColor: colors.cardBg, // Karte-Look
           borderRadius: radius.md,
           padding: 16,
+          paddingRight: 0,
           marginBottom: 12,
           borderWidth: isToday ? 2 : 1, // Dickerer Rand für heute
           borderColor: isToday ? colors.gold : colors.border, // Gold für heute, sonst Standard
           opacity: pressed ? 0.8 : 1, // Feedback
-          
+          overflow: 'hidden',
+
           flexDirection: 'row',
-          alignItems: 'center',
+          alignItems: 'stretch',
           justifyContent: 'space-between',
           
           shadowColor: '#000',
@@ -586,7 +588,7 @@ export default function HomeScreen() {
         })}
       >
         {/* LINKER BEREICH */}
-        <View style={{ flex: 1, gap: 6 }}>
+        <View style={{ flex: 1, gap: 6, paddingRight: 12 }}>
           
           {/* Datum + Badge */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -644,8 +646,8 @@ export default function HomeScreen() {
                     ) : (
                       <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: '#FF6B6B', backgroundColor: '#333' }} />
                     )}
-                    <Text style={type.body}>
-                      🎂 {prof ? shortName(prof) : '(Unbekannt)'} — fällig seit {germanMonthYear(
+                    <Text style={{ ...type.body, flexShrink: 1 }}>
+                      🎂 {prof ? (prof.first_name || '(Unbekannt)') : '(Unbekannt)'} — seit {germanMonthYear(
                         prof?.birthday
                           ? `${r.due_month.slice(0, 4)}-${prof.birthday.slice(5, 7)}-01`
                           : r.due_month
@@ -658,9 +660,20 @@ export default function HomeScreen() {
           ) : null}
         </View>
 
-        {/* RECHTER BEREICH: PFEIL */}
-        <View style={{ paddingLeft: 10 }}>
-          <Text style={{ color: isToday ? colors.gold : '#666', fontSize: 24, fontWeight: 'bold' }}>
+        {/* RECHTER BEREICH: PFEIL – volle Höhe inkl. Card-Padding, bündig mit Rand */}
+        <View style={{
+          alignSelf: 'stretch',
+          justifyContent: 'center',
+          paddingHorizontal: 10,
+          marginTop: -16,
+          marginBottom: -16,
+          paddingTop: 16,
+          paddingBottom: 16,
+          borderLeftWidth: 1,
+          borderLeftColor: isToday ? colors.gold : 'rgba(212,175,55,0.35)',
+          backgroundColor: isToday ? 'rgba(212,175,55,0.12)' : 'rgba(212,175,55,0.06)',
+        }}>
+          <Text style={{ color: isToday ? colors.gold : 'rgba(212,175,55,0.7)', fontSize: 22, fontWeight: 'bold' }}>
             ›
           </Text>
         </View>
