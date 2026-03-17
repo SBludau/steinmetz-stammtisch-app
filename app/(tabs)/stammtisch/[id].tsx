@@ -819,9 +819,47 @@ export default function StammtischEditScreen() {
   }, [dueRounds, currentMonthYYYYMM, effectiveDueMonth])
 
   // Überfällig (auf Basis des effektiven Fälligkeits-Monats)
+  // Ergänzt DB-Einträge um profil-basierte Einträge (falls noch kein birthday_rounds-Eintrag existiert)
   const overdueRounds = useMemo(() => {
-    return dueRounds.filter(r => effectiveDueMonth(r) < currentMonthYYYYMM)
-  }, [dueRounds, currentMonthYYYYMM, effectiveDueMonth])
+    const year = date ? date.slice(0, 4) : String(new Date().getFullYear())
+    const fromDB = dueRounds.filter(r => effectiveDueMonth(r) < currentMonthYYYYMM)
+
+    // Profile mit Geburtstag in vergangenen Monaten, die noch keinen DB-Eintrag haben
+    const fromProfiles: BR[] = profiles
+      .filter(p => {
+        if (!p.birthday) return false
+        const bMonth = (p.birthday as string).slice(5, 7)
+        return `${year}-${bMonth}` < currentMonthYYYYMM
+      })
+      .filter(p => {
+        // Skip wenn bereits in dueRounds (unapproved)
+        if (dueRounds.some(r =>
+          (r.auth_user_id && r.auth_user_id === p.auth_user_id) ||
+          (r.profile_id != null && r.profile_id === p.id)
+        )) return false
+        // Skip wenn bereits gegeben (approved/settled) – checkGiven kennt den vollständigen Status
+        const bMonth = (p.birthday as string).slice(5, 7)
+        if (checkGiven(p.auth_user_id, p.id, `${year}-${bMonth}`)) return false
+        return true
+      })
+      .map(p => {
+        const bMonth = (p.birthday as string).slice(5, 7)
+        return {
+          id: -(p.id ?? 0) - 1, // negativ = synthetisch, kein Konflikt mit DB-IDs
+          auth_user_id: p.auth_user_id ?? null,
+          profile_id: p.id ?? null,
+          due_month: `${year}-${bMonth}-01`,
+          first_due_stammtisch_id: null,
+          settled_stammtisch_id: null,
+          settled_at: null,
+          approved_at: null,
+        } as BR
+      })
+
+    return [...fromDB, ...fromProfiles]
+      .sort((a, b) => effectiveDueMonth(a).localeCompare(effectiveDueMonth(b)))
+  }, [dueRounds, currentMonthYYYYMM, effectiveDueMonth, profiles, date,
+      givenLinkedByMonth, givenUnlinkedByMonth])
 
   const dueRoundLookup = useMemo(() => {
     const map = new Map<string, BR>()
@@ -1169,7 +1207,7 @@ export default function StammtischEditScreen() {
 
                         const onPress = () =>
                           r.auth_user_id
-                            ? givenCurrentOrOverdue(r.auth_user_id, r.id)
+                            ? givenCurrentOrOverdue(r.auth_user_id, r.id > 0 ? r.id : undefined)
                             : (r.profile_id != null ? givenForUnlinkedProfile(r.profile_id) : Alert.alert('Hinweis', 'Unverknüpft: bitte über Teilnehmerliste verbuchen.'))
 
                         const statusNode = renderRoundStatus({
