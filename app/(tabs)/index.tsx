@@ -344,47 +344,51 @@ export default function HomeScreen() {
     loadVegasSettings()
   }, [sessionChecked, loadVegasSettings])
 
-  // Überfällige Geburtstags-Runden laden
+  // Überfällige Geburtstags-Runden laden (profil-basiert, unabhängig von birthday_rounds-Seeding)
   const loadOverdueRounds = useCallback(async () => {
+    if (profiles.length === 0) return
     const now = new Date()
-    // Datum aus lokaler Zeit bauen (toISOString wäre UTC und würde in UTC+1/+2 einen Tag zurückgeben)
-    const d = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-    const nextMonthFirst = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const currentYear = now.getFullYear()
+    const currentMonth = now.getMonth() + 1 // 1–12
 
-    // Alle Einträge bis inkl. nächstem Monat laden (inkl. approved) für Deduplizierung
-    const { data, error } = await supabase
+    // Nur approved/settled Runden dieses Jahr laden (wer hat seine Runde schon gegeben?)
+    const { data: rounds } = await supabase
       .from('birthday_rounds')
-      .select('id, auth_user_id, profile_id, due_month, approved_at, settled_stammtisch_id')
-      .lte('due_month', nextMonthFirst)
-    if (error || !data) return
+      .select('auth_user_id, profile_id, approved_at, settled_stammtisch_id')
+      .gte('due_month', `${currentYear}-01-01`)
+      .lte('due_month', `${currentYear}-12-31`)
 
-    // Schlüssel: Person + Monat (wie in [id].tsx)
     const idKeyFor = (r: any) => r.auth_user_id ?? `pid:${r.profile_id}`
-    const monthKeyFor = (r: any) => (r.due_month as string)?.slice(0, 7) ?? ''
-
-    // Alle Person+Monat-Kombos, die bereits approved oder settled wurden
     const doneKeys = new Set(
-      data
+      (rounds ?? [])
         .filter(r => !!r.approved_at || !!r.settled_stammtisch_id)
-        .map(r => `${idKeyFor(r)}:${monthKeyFor(r)}`)
+        .map(r => idKeyFor(r))
     )
 
-    // Nur echte offene Runden: kein settled, kein approved, kein Gegenstück das settled/approved ist
-    const open = data
-      .filter(r => !r.settled_stammtisch_id && !r.approved_at)
-      .filter(r => !doneKeys.has(`${idKeyFor(r)}:${monthKeyFor(r)}`))
+    // Profile mit Geburtstag, dessen Monat schon vorbei ist UND noch keine genehmigte Runde
+    const overdue: OverdueRound[] = profiles
+      .filter(p => {
+        if (!p.birthday) return false
+        const bMonth = parseInt((p.birthday as string).slice(5, 7), 10)
+        return bMonth <= currentMonth
+      })
+      .filter(p => {
+        const key = p.auth_user_id ?? `pid:${p.id}`
+        return !doneKeys.has(key)
+      })
+      .map(p => {
+        const bMonth = (p.birthday as string).slice(5, 7)
+        return {
+          id: p.id ?? 0,
+          auth_user_id: p.auth_user_id ?? null,
+          profile_id: p.id ?? null,
+          due_month: `${currentYear}-${bMonth}-01`,
+        }
+      })
+      .sort((a, b) => a.due_month.localeCompare(b.due_month))
 
-    // Deduplizieren nach Person+Monat
-    const seen = new Set<string>()
-    const unique = open.filter(r => {
-      const key = `${idKeyFor(r)}:${monthKeyFor(r)}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-
-    setOverdueRounds(unique.sort((a, b) => a.due_month.localeCompare(b.due_month)) as OverdueRound[])
-  }, [])
+    setOverdueRounds(overdue)
+  }, [profiles])
 
   useEffect(() => {
     if (!sessionChecked) return
