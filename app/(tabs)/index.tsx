@@ -206,6 +206,9 @@ export default function HomeScreen() {
   const [timerActive, setTimerActive] = useState(false)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Ref für profiles – erlaubt loadOverdueRounds eine stabile Funktionsreferenz (kein Re-Render-Loop)
+  const profilesRef = useRef<Profile[]>([])
+
   // ---- NEU: GitHub Stats laden ----
   useEffect(() => {
     fetchGitHubStats().then(setGithubInfo)
@@ -300,6 +303,8 @@ export default function HomeScreen() {
     if (error) { setProfiles([]); return }
     const profs = (data ?? []) as Profile[]
     setProfiles(profs)
+    profilesRef.current = profs
+    loadOverdueRounds()
 
     // Google-Avatar-Fallbacks (leise ignorieren, falls RPC fehlt)
     try {
@@ -345,8 +350,10 @@ export default function HomeScreen() {
   }, [sessionChecked, loadVegasSettings])
 
   // Überfällige Geburtstags-Runden laden (profil-basiert, unabhängig von birthday_rounds-Seeding)
+  // Nutzt profilesRef statt profiles-State, damit keine neue Funktionsreferenz entsteht (kein Re-Render-Loop)
   const loadOverdueRounds = useCallback(async () => {
-    if (profiles.length === 0) return
+    const currentProfiles = profilesRef.current
+    if (currentProfiles.length === 0) return
     const now = new Date()
     const currentYear = now.getFullYear()
     const currentMonth = now.getMonth() + 1 // 1–12
@@ -366,7 +373,7 @@ export default function HomeScreen() {
     )
 
     // Profile mit Geburtstag, dessen Monat schon vorbei ist UND noch keine genehmigte Runde
-    const overdue: OverdueRound[] = profiles
+    const overdue: OverdueRound[] = currentProfiles
       .filter(p => {
         if (!p.birthday) return false
         const bMonth = parseInt((p.birthday as string).slice(5, 7), 10)
@@ -388,7 +395,7 @@ export default function HomeScreen() {
       .sort((a, b) => a.due_month.localeCompare(b.due_month))
 
     setOverdueRounds(overdue)
-  }, [profiles])
+  }, []) // stabile Referenz – kein Re-Render-Loop
 
   useEffect(() => {
     if (!sessionChecked) return
