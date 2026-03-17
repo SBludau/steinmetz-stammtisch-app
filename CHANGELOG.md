@@ -12,6 +12,16 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.6] - 2026-03-17
+
+**Geänderte Dateien**
+- `app/(tabs)/index.tsx`
+
+### Behoben
+- **Timezone-Bug: Überfällige Runden nicht sichtbar auf Android-Geräten in UTC+1/+2** – `toISOString()` rechnet intern nach UTC um. Dadurch wurde „April 1, 00:00 Uhr lokalzeit" als „März 31" interpretiert, und Runden mit `due_month = 2026-04-01` wurden nicht geladen. Datum wird jetzt manuell aus lokalen Zeitkomponenten zusammengesetzt.
+
+---
+
 ## [0.4.5] - 2026-03-17
 
 **Geänderte Dateien**
