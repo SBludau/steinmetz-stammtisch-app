@@ -347,9 +347,9 @@ export default function HomeScreen() {
   // Überfällige Geburtstags-Runden laden
   const loadOverdueRounds = useCallback(async () => {
     const now = new Date()
-    // Bis zum ersten des NÄCHSTEN Monats laden, damit Runden des kommenden Stammtischs sichtbar sind
-    const nextMonthFirst = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-      .toISOString().slice(0, 10)
+    // Datum aus lokaler Zeit bauen (toISOString wäre UTC und würde in UTC+1/+2 einen Tag zurückgeben)
+    const d = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+    const nextMonthFirst = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
     // Alle Einträge bis inkl. nächstem Monat laden (inkl. approved) für Deduplizierung
     const { data, error } = await supabase
