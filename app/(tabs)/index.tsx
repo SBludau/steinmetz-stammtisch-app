@@ -103,6 +103,7 @@ const fetchGitHubStats = async (): Promise<string> => {
 type Row = { id: number; date: string; location: string; notes: string | null }
 type Degree = 'none' | 'dr' | 'prof'
 type Profile = {
+  id: number
   auth_user_id: string
   first_name: string | null
   middle_name: string | null
@@ -111,6 +112,13 @@ type Profile = {
   birthday: string | null
   avatar_url: string | null
   standing_order: boolean | null
+}
+
+type OverdueRound = {
+  id: number
+  auth_user_id: string | null
+  profile_id: number | null
+  due_month: string
 }
 
 const BANNER = require('../../assets/images/banner.png')
@@ -186,6 +194,9 @@ export default function HomeScreen() {
   const [predMonth, setPredMonth] = useState('')
   const [predYear, setPredYear] = useState('')
   const [vegasCollapsed, setVegasCollapsed] = useState(true)
+
+  // Überfällige Geburtstags-Runden
+  const [overdueRounds, setOverdueRounds] = useState<OverdueRound[]>([])
 
   // ---- NEU: State für GitHub Info ----
   const [githubInfo, setGithubInfo] = useState<string>('Lade Daten...')
@@ -285,7 +296,7 @@ export default function HomeScreen() {
   const loadProfiles = useCallback(async () => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('auth_user_id, first_name, middle_name, last_name, degree, birthday, avatar_url, standing_order')
+      .select('id, auth_user_id, first_name, middle_name, last_name, degree, birthday, avatar_url, standing_order')
     if (error) { setProfiles([]); return }
     const profs = (data ?? []) as Profile[]
     setProfiles(profs)
@@ -332,6 +343,53 @@ export default function HomeScreen() {
     if (!sessionChecked) return
     loadVegasSettings()
   }, [sessionChecked, loadVegasSettings])
+
+  // Überfällige Geburtstags-Runden laden
+  const loadOverdueRounds = useCallback(async () => {
+    const now = new Date()
+    // Bis zum ersten des NÄCHSTEN Monats laden, damit Runden des kommenden Stammtischs sichtbar sind
+    const nextMonthFirst = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+      .toISOString().slice(0, 10)
+
+    // Alle Einträge bis inkl. nächstem Monat laden (inkl. approved) für Deduplizierung
+    const { data, error } = await supabase
+      .from('birthday_rounds')
+      .select('id, auth_user_id, profile_id, due_month, approved_at, settled_stammtisch_id')
+      .lte('due_month', nextMonthFirst)
+    if (error || !data) return
+
+    // Schlüssel: Person + Monat (wie in [id].tsx)
+    const idKeyFor = (r: any) => r.auth_user_id ?? `pid:${r.profile_id}`
+    const monthKeyFor = (r: any) => (r.due_month as string)?.slice(0, 7) ?? ''
+
+    // Alle Person+Monat-Kombos, die bereits approved oder settled wurden
+    const doneKeys = new Set(
+      data
+        .filter(r => !!r.approved_at || !!r.settled_stammtisch_id)
+        .map(r => `${idKeyFor(r)}:${monthKeyFor(r)}`)
+    )
+
+    // Nur echte offene Runden: kein settled, kein approved, kein Gegenstück das settled/approved ist
+    const open = data
+      .filter(r => !r.settled_stammtisch_id && !r.approved_at)
+      .filter(r => !doneKeys.has(`${idKeyFor(r)}:${monthKeyFor(r)}`))
+
+    // Deduplizieren nach Person+Monat
+    const seen = new Set<string>()
+    const unique = open.filter(r => {
+      const key = `${idKeyFor(r)}:${monthKeyFor(r)}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+
+    setOverdueRounds(unique.sort((a, b) => a.due_month.localeCompare(b.due_month)) as OverdueRound[])
+  }, [])
+
+  useEffect(() => {
+    if (!sessionChecked) return
+    loadOverdueRounds()
+  }, [sessionChecked, loadOverdueRounds])
 
   // Realtime für Events
   useEffect(() => {
@@ -432,6 +490,12 @@ export default function HomeScreen() {
     return getPublicAvatarUrl(p.avatar_url) || fallbackAvatars[p.auth_user_id] || undefined
   }
 
+  const profileForRound = useCallback((r: OverdueRound): Profile | undefined => {
+    if (r.auth_user_id) return profiles.find(p => p.auth_user_id === r.auth_user_id)
+    if (r.profile_id != null) return profiles.find(p => p.id === r.profile_id)
+    return undefined
+  }, [profiles])
+
   // Vegas Counter (aus Settings)
   const standingCount = useMemo(() => (profiles ?? []).filter(p => !!p.standing_order).length, [profiles])
   const monthsPassed = useMemo(() => countFirstsSince(vegasStartDate, todayStr), [vegasStartDate, todayStr])
@@ -471,9 +535,10 @@ export default function HomeScreen() {
       loadProfiles()
       loadProfileCard()
       loadVegasSettings()
+      loadOverdueRounds()
       // Auch Stats aktualisieren bei Focus
       fetchGitHubStats().then(setGithubInfo)
-    }, [sessionChecked, loadData, loadProfiles, loadProfileCard, loadVegasSettings])
+    }, [sessionChecked, loadData, loadProfiles, loadProfileCard, loadVegasSettings, loadOverdueRounds])
   )
 
   // (NEU) Auch beim erneuten Antippen des Home-Tabs (BottomNav) alles neu laden
@@ -484,16 +549,18 @@ export default function HomeScreen() {
       loadProfiles()
       loadProfileCard()
       loadVegasSettings()
+      loadOverdueRounds()
       fetchGitHubStats().then(setGithubInfo)
     })
     return unsub
-  }, [navigation, sessionChecked, loadData, loadProfiles, loadProfileCard, loadVegasSettings])
+  }, [navigation, sessionChecked, loadData, loadProfiles, loadProfileCard, loadVegasSettings, loadOverdueRounds])
 
   // ---- UI ----
 
   const renderItem = ({ item }: { item: Row }) => {
     const birthdays = birthdayRowsFor(item.date)
     const isToday = item.date === todayStr // Prüfen ob heute
+    const isFirstUpcoming = upcoming.length > 0 && item.id === upcoming[0].id
 
     return (
       <Pressable
@@ -559,6 +626,34 @@ export default function HomeScreen() {
                   </Text>
                 </View>
               ))}
+            </View>
+          ) : null}
+
+          {isFirstUpcoming && overdueRounds.length > 0 ? (
+            <View style={{ marginTop: 8, gap: 4 }}>
+              <Text style={{ ...type.caption, color: '#FF6B6B' }}>⚠️ Überfällige Runden:</Text>
+              {overdueRounds.map(r => {
+                const prof = profileForRound(r)
+                return (
+                  <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    {prof && avatarFor(prof) ? (
+                      <Image
+                        source={{ uri: avatarFor(prof)! }}
+                        style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: '#FF6B6B' }}
+                      />
+                    ) : (
+                      <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: '#FF6B6B', backgroundColor: '#333' }} />
+                    )}
+                    <Text style={type.body}>
+                      🎂 {prof ? shortName(prof) : '(Unbekannt)'} — fällig seit {germanMonthYear(
+                        prof?.birthday
+                          ? `${r.due_month.slice(0, 4)}-${prof.birthday.slice(5, 7)}-01`
+                          : r.due_month
+                      )}
+                    </Text>
+                  </View>
+                )
+              })}
             </View>
           ) : null}
         </View>

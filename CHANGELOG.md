@@ -12,6 +12,22 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.4] - 2026-03-17
+
+**Geänderte Dateien**
+- `app/(tabs)/index.tsx`
+- `.github/workflows/supabase-ping.yml` (neu)
+
+### Hinzugefügt
+- **Überfällige Geburtstags-Runden auf der Startseite:** Im nächsten bevorstehenden Stammtisch-Card werden alle noch offenen Geburtstagsrunden angezeigt – sowohl vergangene (überfällig) als auch die des kommenden Stammtischs. Anzeige: 🎂 Name – fällig seit [Geburtstagsmonat].
+- **Supabase Keep-Alive Ping:** GitHub Actions Workflow (`.github/workflows/supabase-ping.yml`) pingt die Datenbank alle 3 Tage automatisch, um das Einschlafen des kostenlosen Supabase-Projekts zu verhindern.
+
+### Behoben
+- **Datenbank: Orphan-Rows gelöscht** – 3 verwaiste `birthday_rounds`-Einträge (Martin Maas Okt 2025, Sebastian Bludau Dez 2025, Timo Glantschnig Apr 2026) wurden bereinigt. Diese wurden durch einen Fehler in `seed_birthday_rounds` doppelt angelegt.
+- **`seed_birthday_rounds` RPC korrigiert:** Die Datenbankfunktion prüft nun, ob eine Person bereits eine genehmigte Runde im selben Jahr hat, bevor ein neuer Eintrag angelegt wird. Verhindert künftige Orphan-Rows.
+
+---
+
 ## [0.4.3] - 2026-03-17
 
 **Geänderte Dateien**

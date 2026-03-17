@@ -1,0 +1,19 @@
+name: Supabase Keep-Alive Ping
+
+on:
+  schedule:
+    - cron: '0 8 */3 * *'  # alle 3 Tage um 08:00 UTC
+  workflow_dispatch:         # auch manuell auslösbar (GitHub → Actions → Run workflow)
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase
+        run: |
+          curl -s \
+            "https://bcbqnkycjroiskwqcftc.supabase.co/rest/v1/stammtisch?limit=1" \
+            -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjYnFua3ljanJvaXNrd3FjZnRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY5MDM3MzcsImV4cCI6MjA3MjQ3OTczN30.EPU1xSh7K4MzNl2DgCAuITBgb8ywh-ePBDmpVewKRoA" \
+            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjYnFua3ljanJvaXNrd3FjZnRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY5MDM3MzcsImV4cCI6MjA3MjQ3OTczN30.EPU1xSh7K4MzNl2DgCAuITBgb8ywh-ePBDmpVewKRoA" \
+            --fail
+          echo "Ping erfolgreich – Supabase ist wach"
