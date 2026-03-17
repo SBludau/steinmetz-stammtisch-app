@@ -894,12 +894,7 @@ export default function StammtischEditScreen() {
     return map
   }, [donorsPending])
 
-  // Sichtbarkeiten
-  const showBirthdayBox =
-    !loadingRounds &&
-    !roundsErr &&
-    !isBeforeEarliestDue &&
-    (currentMonthBirthdays.length > 0 || overdueRounds.length > 0)
+  // Sichtbarkeit Donors-Box (overdueRounds wird weiter unten definiert, nach checkGiven)
   const showDonorsBox = !loadingDonors && donors.length > 0
 
   // Helpers
@@ -967,6 +962,13 @@ export default function StammtischEditScreen() {
       .sort((a, b) => effectiveDueMonth(a).localeCompare(effectiveDueMonth(b)))
   }, [dueRounds, currentMonthYYYYMM, effectiveDueMonth, profiles, date,
       givenLinkedByMonth, givenUnlinkedByMonth])
+
+  // Sichtbarkeiten (muss nach overdueRounds stehen)
+  const showBirthdayBox =
+    !loadingRounds &&
+    !roundsErr &&
+    !isBeforeEarliestDue &&
+    (currentMonthBirthdays.length > 0 || overdueRounds.length > 0)
 
   const checkPending = (authUserId: string | null, profileId: number | null, monthYYYYMM: string) => {
     const round = resolveDueRound(authUserId, profileId, monthYYYYMM)
