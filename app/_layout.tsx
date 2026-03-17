@@ -7,8 +7,6 @@ import { StatusBar } from 'expo-status-bar'
 import { colors } from '../src/theme/colors'
 import './global.css'
 import * as WebBrowser from 'expo-web-browser'
-import * as Updates from 'expo-updates'
-
 // sorgt dafür, dass Auth-Session nach Redirects sauber abgeschlossen wird
 WebBrowser.maybeCompleteAuthSession();
 
@@ -22,6 +20,9 @@ export default function RootLayout() {
     if (__DEV__) return
     async function checkForUpdate() {
       try {
+        // dynamischer Import – nativer Modul nur in produktiven Builds verfügbar
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const Updates = require('expo-updates')
         const check = await Updates.checkForUpdateAsync()
         if (!check.isAvailable) return
         await Updates.fetchUpdateAsync()
