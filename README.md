@@ -1,190 +1,93 @@
 # MetzÄpp – Steinmetz Stammtisch App
 
-Eine mobile App (Android) und Web-Anwendung zur Verwaltung des Steinmetz-Stammtischs.
-Entwickelt mit **Expo (React Native)**, **TypeScript** und **Supabase** (Auth, Datenbank & Storage).
+Eine mobile App (Android) und Web-App zur Verwaltung des Steinmetz-Stammtischs.
+Entwickelt mit **Expo (React Native)**, **TypeScript** und **Supabase**.
 
-🌐 **Web-Version:** [https://stammtisch-app.vercel.app/](https://stammtisch-app.vercel.app/)
-
----
-
-## 📑 Inhaltsverzeichnis
-
-1. [🖥️ Entwicklungsumgebung (Windows 11)](#️-entwicklungsumgebung-windows-11)
-2. [🔁 Nach jedem Neustart – Was tun?](#-nach-jedem-neustart--was-tun)
-3. [🚀 Ersteinrichtung (einmalig)](#-ersteinrichtung-einmalig)
-4. [🛠 Tech-Stack](#-tech-stack)
-5. [📁 Projektstruktur](#-projektstruktur)
-6. [📱 App-Screens & Features](#-app-screens--features)
-7. [🎨 Design-System](#-design-system)
-8. [💾 Datenbank (Supabase)](#-datenbank-supabase)
-9. [⚙️ Konfiguration (Auth & Supabase)](#️-konfiguration-auth--supabase)
-10. [☁️ Deployment: Web (Vercel)](#️-deployment-web-vercel)
-11. [🤖 Deployment: Android (EAS Build)](#-deployment-android-eas-build)
-12. [📲 OTA-Updates (App-Update ohne neue APK)](#-ota-updates-app-update-ohne-neue-apk)
-13. [🔄 Git-Workflow](#-git-workflow)
-14. [⚡ Spickzettel (Alle Befehle)](#-spickzettel-alle-befehle)
+🌐 **Web-Version:** [stammtisch-app.vercel.app](https://stammtisch-app.vercel.app/)
 
 ---
 
-## 🖥️ Entwicklungsumgebung (Windows 11)
+## ⚡ Schnellstart – Was tun bei jedem Neustart?
 
-### Installierte Tools (Stand 16.03.2026)
+### 1. Emulator starten
 
-| Tool | Pfad / Version | Zweck |
-|---|---|---|
-| Node.js | v24.14.0 | JavaScript-Laufzeit |
-| npm | kommt mit Node | Paketmanager |
-| EAS CLI | global installiert | Cloud-Builds für Android |
-| Android Studio | `C:\Program Files\Android\Android Studio` | Emulator & SDK |
-| Android SDK | `C:\Users\Sebastian Bludau\AppData\Local\Android\Sdk` | Android-Build-Tools |
-| Java (JBR) | `C:\Program Files\Android\Android Studio\jbr` | Java-Laufzeit für Android-Tools |
-| Git | vorhanden | Versionskontrolle |
+Android Studio öffnen → **Device Manager** (rechts oben) → **▶** bei „Medium Phone API 36.1" drücken → warten bis Android-Homescreen erscheint (~30–60 Sek.)
 
-### Umgebungsvariablen (permanent gesetzt)
+### 2. Expo Dev Server starten (PowerShell)
 
-```
-ANDROID_HOME  = C:\Users\Sebastian Bludau\AppData\Local\Android\Sdk
-JAVA_HOME     = C:\Program Files\Android\Android Studio\jbr
-PATH          += %ANDROID_HOME%\platform-tools
-PATH          += %ANDROID_HOME%\emulator
-PATH          += %JAVA_HOME%\bin
-```
-
-### Emulator
-
-- **Name:** Medium Phone API 36.1
-- **Auflösung:** 1080 × 2400 px (420 dpi)
-- **Architektur:** x86_64
-- **API Level:** Android 16 (API 36.1)
-- **Google Play:** Ja
-
----
-
-## 🔁 Nach jedem Neustart – Was tun?
-
-Das ist die Schritt-für-Schritt-Anleitung für die tägliche Entwicklung:
-
-### Schritt 1 – Emulator starten
-
-1. **Android Studio** öffnen (Startmenü → „Android Studio")
-2. Rechts oben: **Device Manager** Symbol klicken
-3. Beim **Medium Phone API 36.1** → **▶ Play-Button** drücken
-4. Warten bis der Android-Homescreen erscheint (~30–60 Sekunden)
-
-> 💡 Alternativ startet der Emulator auch automatisch wenn du `start-android.ps1` ausführst und `a` drückst.
-
----
-
-### Schritt 2 – Metro-Bundler starten
-
-**Option A – Doppelklick auf Skript:**
-```
-F:\GitHub\steinmetz-stammtisch-app\start-android.ps1
-```
-→ Rechtsklick → „Mit PowerShell ausführen"
-
-**Option B – PowerShell manuell:**
 ```powershell
 cd "F:\GitHub\steinmetz-stammtisch-app"
-npx expo start -c
+npx expo start --clear
 ```
 
----
+→ Im Terminal `a` drücken → App öffnet sich im Emulator
+→ `r` drücken → App neu laden
+→ `Ctrl+C` → Server beenden
 
-### Schritt 3 – App auf Emulator öffnen
+### 3. Code ändern & testen
 
-Im Terminal erscheint nach ~10 Sekunden:
-```
-› Press a │ open Android
-› Press w │ open web
-```
+Änderungen im Code → App aktualisiert sich **automatisch** im Emulator. Falls nicht: `r` drücken.
 
-**`a` drücken** → Die MetzÄpp öffnet sich im Emulator.
-
-> 💡 Falls die App nicht automatisch startet: Im Emulator die App **„MetzÄpp"** manuell antippen (liegt im App-Drawer).
-
----
-
-### Das war's! Ab jetzt:
-
-- Änderungen im Code → App aktualisiert **sofort automatisch** im Emulator
-- `r` im Terminal drücken → App neu laden
-- `Ctrl + C` → Metro-Server beenden
-
----
-
-## 🚀 Ersteinrichtung (einmalig)
-
-Diese Schritte müssen nur einmal durchgeführt werden – z.B. auf einem neuen Rechner.
-
-### 1. Repository klonen
-
-```bash
-git clone https://github.com/SBludau/steinmetz-stammtisch-app.git
-cd steinmetz-stammtisch-app
-npm ci
-```
-
-### 2. Android Studio installieren
+### 4. Änderungen speichern (Git)
 
 ```powershell
-winget install Google.AndroidStudio --accept-package-agreements --accept-source-agreements
+git add .
+git commit -m "feat: was wurde geändert"
+git push
 ```
 
-Nach der Installation:
-- Android Studio öffnen → Setup-Assistent: **Standard** wählen → SDK wird heruntergeladen
-
-### 3. Umgebungsvariablen setzen
+### 5. Update an alle App-Nutzer schicken (OTA)
 
 ```powershell
-# In PowerShell (einmalig):
-[System.Environment]::SetEnvironmentVariable("ANDROID_HOME", "C:\Users\<DEIN_USER>\AppData\Local\Android\Sdk", "User")
-[System.Environment]::SetEnvironmentVariable("JAVA_HOME", "C:\Program Files\Android\Android Studio\jbr", "User")
+eas update --channel preview --message "kurze beschreibung der änderung"
 ```
 
-### 4. EAS CLI installieren & einloggen
-
-```bash
-npm install -g eas-cli
-eas login
-# → Expo-Account: sbludau
-# → Passwort: dein Passwort auf expo.dev
-```
-
-### 5. Emulator erstellen
-
-Android Studio → Device Manager → **+** → Create Virtual Device
-- Gerät: **Medium Phone** → Next
-- System Image: **API 36** → Next → Finish
-- Mit **▶ Play** starten
-
-### 6. Development-APK installieren (einmalig)
-
-```bash
-eas build -p android --profile development
-# → APK herunterladen
-# → Im Emulator installieren:
-adb install <pfad-zur-apk.apk>
-```
-
-> ⚠️ **Wichtig:** Diesen Schritt musst du nur wiederholen wenn neue native Bibliotheken hinzukommen oder die Expo-Version aktualisiert wird. Für normale Code-Änderungen reicht immer `npx expo start`.
+Dauert ~1 Minute. Nutzer bekommen beim nächsten App-Start automatisch einen Update-Dialog.
+**Kein neuer APK-Build nötig** – solange nur Code (JS/TS) geändert wurde.
 
 ---
 
-## 🛠 Tech-Stack
+## 📲 Wann brauche ich einen neuen APK-Build?
+
+| Situation | Was tun? |
+|---|---|
+| Code geändert (Features, Bugfixes, Design) | `eas update` — fertig |
+| Neue native Bibliothek installiert (`npx expo install ...`) | `eas build` → neue APK |
+| Expo SDK-Version aktualisiert | `eas build` → neue APK |
+| Icons, Splash-Screen, Berechtigungen geändert (`app.json`) | `eas build` → neue APK |
+
+**Faustregel: 95% aller Änderungen → `eas update`. Neuer Build ist selten.**
+
+```powershell
+# Neuen APK-Build starten (nur wenn nötig, dauert ~15 Min in der Cloud):
+eas build --profile preview --platform android
+# → Download-Link erscheint im Terminal und auf expo.dev
+# → Link per WhatsApp/E-Mail an alle Nutzer schicken (einmalig installieren)
+```
+
+---
+---
+
+## 🛠 Tech-Stack & Tools
 
 | Technologie | Version | Zweck |
 |---|---|---|
-| [Expo](https://expo.dev/) | 53.0.22 | App-Framework mit File-based Routing |
-| React Native | 0.79.6 | Mobile UI |
-| TypeScript | 5.8.3 | Typsichere Programmiersprache |
-| [Supabase](https://supabase.com/) | 2.57.0 | Backend: PostgreSQL, Auth, Storage |
-| expo-dev-client | 5.2.4 | Development-Build für lokales Testen |
-| expo-router | 5.1.5 | Navigation (File-based) |
-| expo-av | 15.1.7 | Audio (Furz-Sounds 🎺) |
-| react-native-calendars | 1.1313.0 | Kalender für neue Stammtische |
-| [Vercel](https://vercel.com/) | – | Web-Hosting (automatisch via GitHub) |
+| Expo | 53 | App-Framework mit File-based Routing |
+| React Native | 0.79 | Mobile UI |
+| TypeScript | 5.8 | Programmiersprache |
+| Supabase | 2.57 | Backend: PostgreSQL, Auth, Storage |
+| expo-updates | – | OTA-Updates ohne neue APK |
+| expo-dev-client | 5.2 | Development-Build für Emulator |
+| expo-router | 5.1 | Navigation (File-based) |
+| expo-av | 15.1 | Audio (Sounds) |
+| react-native-calendars | 1.13 | Kalender |
+| Vercel | – | Web-Hosting (auto-deploy via GitHub) |
 | EAS | – | Android APK Cloud-Builds |
+
+**Lokale Entwicklungsumgebung (Windows 11):**
+- Node.js v24 · Android Studio · Android SDK · Java (JBR von Android Studio)
+- `ANDROID_HOME = C:\Users\<USER>\AppData\Local\Android\Sdk`
+- `JAVA_HOME = C:\Program Files\Android\Android Studio\jbr`
 
 ---
 
@@ -194,182 +97,128 @@ adb install <pfad-zur-apk.apk>
 steinmetz-stammtisch-app/
 │
 ├── app/                          ← Alle Bildschirme (Expo Router)
-│   ├── _layout.tsx               ← Root-Layout: Fonts laden, Auth-Status prüfen
-│   ├── login.tsx                 ← Login-Screen (Google OAuth + E-Mail)
+│   ├── _layout.tsx               ← Root-Layout: Fonts, OTA-Update-Check
+│   ├── login.tsx                 ← Login (Google OAuth + E-Mail)
 │   ├── auth-callback.tsx         ← OAuth-Weiterleitung nach Login
 │   ├── claim-profile.tsx         ← Neuer User verknüpft sich mit DB-Profil
 │   ├── member-card.tsx           ← Mitglieds-Karte mit QR-Code
 │   │
-│   ├── (tabs)/                   ← Haupt-Navigation (4 Tabs)
-│   │   ├── _layout.tsx           ← Tab-Konfiguration (versteckt native Tab-Bar)
+│   ├── (tabs)/                   ← Haupt-Navigation
 │   │   ├── index.tsx             ← Startseite: Vegas-Counter, Events, Geburtstage
-│   │   ├── new_stammtisch.tsx    ← Neues Event anlegen (mit Kalender)
+│   │   ├── new_stammtisch.tsx    ← Neues Event anlegen
 │   │   ├── profile.tsx           ← Eigenes Profil bearbeiten
-│   │   ├── stats.tsx             ← Jahresranglisten (Anwesenheit, Serien, Spenden)
-│   │   ├── hall_of_fame.tsx      ← Mitgliederliste (aktiv/passiv)
-│   │   └── stammtisch/
-│   │       └── [id].tsx          ← Event-Detailseite: Runden, Teilnehmer
+│   │   ├── stats.tsx             ← Jahresranglisten
+│   │   ├── hall_of_fame.tsx      ← Mitgliederliste
+│   │   └── stammtisch/[id].tsx   ← Event-Detailseite: Runden, Teilnehmer
 │   │
-│   └── admin/                    ← Admin-Bereich (nur für Admins sichtbar)
-│       ├── users.tsx             ← Alle User verwalten
+│   └── admin/                    ← Admin-Bereich
+│       ├── users.tsx             ← User verwalten
 │       ├── claims.tsx            ← Profil-Verknüpfungs-Anfragen
-│       ├── settings.tsx          ← App-Einstellungen (Vegas-Startbetrag)
-│       └── profile/
-│           └── [id].tsx          ← Einzelnes Admin-Profil bearbeiten
+│       ├── settings.tsx          ← App-Einstellungen
+│       └── profile/[id].tsx      ← Einzelnes Profil bearbeiten
 │
 ├── src/
-│   ├── lib/
-│   │   └── supabase.ts           ← Supabase-Client (URL + Anon-Key)
-│   ├── theme/
-│   │   ├── colors.ts             ← Farbpalette (Schwarz/Gold/Dunkelrot)
-│   │   └── typography.ts        ← Schrift-Styles (Größen, Gewichte, Farben)
-│   └── components/
-│       └── BottomNav.tsx         ← Custom Bottom-Navigation (4 Icons)
+│   ├── lib/supabase.ts           ← Supabase-Client
+│   ├── theme/colors.ts           ← Farbpalette
+│   ├── theme/typography.ts       ← Schrift-Styles
+│   └── components/BottomNav.tsx  ← Custom Bottom-Navigation
 │
 ├── assets/
-│   ├── fonts/
-│   │   └── BROADW.ttf            ← Broadway-Schrift (Überschriften)
-│   ├── sounds/                   ← 8 Furz-Sounds + Bier + Explosion (MP3)
-│   ├── nav/                      ← 4 Navigation-Icons (PNG, 96×96 px)
-│   └── images/
-│       └── banner.png            ← Hero-Banner auf der Startseite
+│   ├── fonts/BROADW.ttf          ← Broadway-Schrift
+│   ├── sounds/                   ← MP3-Sounds
+│   ├── nav/                      ← Navigation-Icons
+│   └── images/banner.png         ← Hero-Banner
 │
-├── supabase/
-│   └── functions/
-│       └── admin-delete-user/    ← Edge Function: User vollständig löschen (Deno)
+├── supabase/functions/
+│   └── admin-delete-user/        ← Edge Function: User vollständig löschen
 │
-├── app.json                      ← Expo-Konfiguration (App-Name, Icons, Bundle-ID)
-├── eas.json                      ← EAS Build-Profile (development/preview/production)
-├── package.json                  ← Abhängigkeiten & npm-Scripts
-├── tsconfig.json                 ← TypeScript-Konfiguration
-├── start-android.ps1             ← Windows-Startskript für Emulator-Entwicklung
-└── .gitignore                    ← android/ und ios/ sind NICHT im Git (werden generiert)
+├── .github/workflows/
+│   └── supabase-ping.yml         ← Keep-Alive Ping alle 3 Tage (GitHub Actions)
+│
+├── app.json                      ← Expo-Konfiguration (Name, Icons, OTA-Channel)
+├── eas.json                      ← EAS Build-Profile
+└── package.json                  ← Abhängigkeiten
 ```
 
 ---
 
 ## 📱 App-Screens & Features
 
-### 🏠 Startseite (`index.tsx`)
+### Startseite (`index.tsx`)
+- **Vegas-Counter** – aktueller Kassenstand der Stammtisch-Kasse (Startbetrag + Daueraufträge × Monate)
+- **Nächster Stammtisch** – immer der 2. Freitag im Monat; zeigt überfällige Geburtstagsrunden
+- **Geburtstags-Runden** – wer hat im Stammtisch-Monat Geburtstag, bereits gegeben?
+- **Furz-Buttons** 🎺 – 8 Sounds + Bier + Explosion
 
-**Vegas-Counter:**
-- Zeigt den aktuellen Kassenstand der Stammtisch-Kasse
-- Berechnung: Startbetrag (01.08.2025) + 20 € × Anzahl aktiver Daueraufträge × vergangene Monate
+### Stammtisch-Detailseite (`stammtisch/[id].tsx`)
+- Geburtstagskinder + überfällige Runden aus Vormonaten
+- „Gegeben"-Button nur bei persönlicher Anwesenheit aktiv
+- Extra-Runden (Edle Spender)
+- Teilnehmerliste: Going / Declined / Maybe (verknüpfte + unverknüpfte Profile)
+- Moderationsbereich (Admin/Superuser): Runden bestätigen oder löschen
 
-**Nächster Stammtisch:**
-- Zeigt Datum und Uhrzeit des nächsten Events
-- Immer der 2. Freitag im Monat
+### Statistiken (`stats.tsx`)
+- Jahresauswahl · Top 5 Teilnehmer · Top 3 Serien · Top 5 Spender
 
-**Geburtstags-Runden:**
-- Mitglieder die im Monat des nächsten Stammtischs Geburtstag haben
-- Zeigt ob die Runde bereits gegeben wurde
+### Hall of Fame (`hall_of_fame.tsx`)
+- Alle Mitglieder (aktiv/passiv), sortiert nach Nachname
 
-**Furz-Buttons 🎺:**
-- 8 verschiedene Sounds für Druckabbau in Meetings
-- Plus: Bier-Sound und Explosion
+### Profil (`profile.tsx`)
+- Dienstgrad, Akademischer Grad, Lebensweisheit, Avatar-Upload
+- Status: Aktiv / Dauerauftrag
+- Admin-Bereich: Link zu Users, Claims, Settings
 
----
-
-### 📊 Statistiken (`stats.tsx`)
-
-- Jahresauswahl per Dropdown (Standard: aktuelles Jahr)
-- **Top 5 Teilnehmer** – wer war am häufigsten dabei?
-- **Top 5 Serien-Trinker** – längste Anwesenheits-Serie ohne Fehlen
-- **Top 5 Schankwirtschaft** – wer hat am meisten ausgegeben/gespendet?
-
----
-
-### 🏅 Hall of Fame (`hall_of_fame.tsx`)
-
-- Komplette Mitgliederliste: **Aktive** und **Passive** Steinmetze
-- Status-Anzeige:
-  - 🟢 Aktiv / ⚪ Passiv
-  - 💰 Dauerauftrag eingerichtet
-  - Auszeichnungen (Emojis)
-- Sortierbar
-
----
-
-### 👤 Profil (`profile.tsx`)
-
-- Eigene Daten bearbeiten: Dienstgrad, Akademischer Grad, Lebensweisheit
-- Avatar-Upload (gespeichert in Supabase Storage)
-- Status-Schalter: „Aktiv" und „Dauerauftrag"
-- Verknüpfungs-Status: Zeigt ob Account mit Stammtisch-Profil verbunden ist
-- **Admin-Bereich:** Nur für Admin/Superuser sichtbar
-
----
-
-### 🍻 Stammtisch-Detailseite (`stammtisch/[id].tsx`)
-
-**Runden-Management:**
-- Geburtstagskinder des Monats + überfällige Runden aus Vormonaten
-- „Gegeben"-Button (nur bei persönlicher Anwesenheit aktiv)
-- Extra-Runden für freiwillige Spender
-
-**Teilnehmerliste:**
-- Toggle für jeden Teilnehmer: Going / Declined / Maybe
-- Verknüpfte und unverknüpfte Profile
-
----
-
-### 📅 Neuer Stammtisch (`new_stammtisch.tsx`)
-
-- Kalender-Auswahl für das Datum
-- Nur für Admins/Superuser
-
----
-
-### 🔐 Admin-Bereich (`admin/`)
-
-- **users.tsx** – Alle User anzeigen, Rollen ändern, User löschen
+### Admin-Bereich (`admin/`)
+- **users.tsx** – Rollen ändern, Profile entkoppeln, User löschen
 - **claims.tsx** – Profil-Verknüpfungs-Anfragen genehmigen/ablehnen
-- **settings.tsx** – Vegas-Startbetrag und Datum konfigurieren
-- **profile/[id].tsx** – Einzelnes Profil als Admin bearbeiten
+- **settings.tsx** – Vegas-Startbetrag und -datum konfigurieren
 
 ---
 
 ## 🎨 Design-System
 
-Das Design darf **nicht ohne Absprache** geändert werden!
+**Das Design darf nicht ohne Absprache geändert werden.**
 
 ### Farben (`src/theme/colors.ts`)
 
 | Variable | Hex | Verwendung |
 |---|---|---|
-| `bg` | `#000000` | Schwarzer App-Hintergrund |
-| `text` | `#FFFFFF` | Weißer Standardtext |
-| `gold` | `#C8AD2D` | Überschriften, Highlights, Akzente |
-| `red` / `border` | `#7A1F17` | Rahmen, Karten-Akzente |
-| `cardBg` | `#0E0E0E` | Sehr dunkle Karten-Hintergründe |
+| `bg` | `#000000` | Schwarzer Hintergrund |
+| `text` | `#FFFFFF` | Standardtext |
+| `gold` | `#C8AD2D` | Überschriften, Highlights |
+| `red` / `border` | `#7A1F17` | Rahmen, Akzente |
+| `cardBg` | `#0E0E0E` | Karten-Hintergrund |
 
 ### Typografie (`src/theme/typography.ts`)
 
-| Style | Größe | Gewicht | Farbe |
-|---|---|---|---|
-| `h1` | 28px | bold | gold |
-| `h2` | 22px | bold | gold |
-| `body` | 16px | normal | weiß (Verdana) |
-| `caption` | 12px | normal | halbtransparent |
+| Style | Größe | Farbe |
+|---|---|---|
+| `h1` | 28px bold | gold |
+| `h2` | 22px bold | gold |
+| `body` | 16px | weiß (Verdana) |
+| `caption` | 12px | halbtransparent |
 
-### Schriften
-
-- **Broadway** (`assets/fonts/BROADW.ttf`) – für besondere Überschriften, wird beim App-Start geladen
+- **Broadway** (`assets/fonts/BROADW.ttf`) – Überschriften, wird beim App-Start geladen
 - **Verdana** – Systemschrift für Fließtext
 
 ---
 
 ## 💾 Datenbank (Supabase)
 
-### Wichtige Tabellen
+**Projekt-URL:** `https://bcbqnkycjroiskwqcftc.supabase.co`
+**Anon-Key:** in `src/lib/supabase.ts` (öffentlich, sicher im Frontend)
+**Service-Role-Key:** ⚠️ Geheim! In `.env.local` (gitignored). Nie ins Frontend!
+
+### Tabellen
 
 | Tabelle | Zweck |
 |---|---|
 | `profiles` | Mitgliedsdaten: Name, Rang, Geburtstag, Avatar, Rolle, Status |
-| `stammtisch` | Stammtisch-Events (Datum, Uhrzeit) |
+| `stammtisch` | Events (Datum, Uhrzeit, Ort) |
 | `stammtisch_participants` | Anwesenheit verknüpfter User (going/declined/maybe) |
 | `stammtisch_participants_unlinked` | Anwesenheit nicht-verknüpfter Profile |
-| `birthday_rounds` | Geburtstags-Runden (offen/bezahlt, Betrag, Datum) |
+| `birthday_rounds` | Geburtstags-Runden (offen/bezahlt, Datum, `due_month`) |
+| `spender_rounds` | Edle-Spender-Runden |
 | `profile_claims` | Anfragen neuer User zur Profilverknüpfung |
 | `app_settings` | Vegas-Startbetrag, Startdatum, Monatsbeitrag |
 
@@ -377,39 +226,25 @@ Das Design darf **nicht ohne Absprache** geändert werden!
 
 | Rolle | Rechte |
 |---|---|
-| `member` | Eigenes Profil bearbeiten, eigene Anwesenheit toggeln |
+| `member` | Eigenes Profil, eigene Anwesenheit |
 | `superuser` | + Claims genehmigen/ablehnen |
-| `admin` | + Vollzugriff (User löschen, Rollen ändern, Settings) |
+| `admin` | + Vollzugriff |
+
+### RPC-Funktionen
+
+- **`seed_birthday_rounds`** – Legt automatisch fällige Geburtstags-Runden an wenn eine Stammtisch-Detailseite geöffnet wird. Prüft ob die Person bereits eine genehmigte Runde im selben Jahr hat, um Duplikate zu vermeiden.
 
 ### Edge Function
 
-- **`admin-delete-user`** – Löscht User vollständig aus Auth, DB und Storage
-- Pfad: `supabase/functions/admin-delete-user/index.ts`
-- Nur mit Admin-Token aufrufbar
+- **`admin-delete-user`** – Löscht User vollständig aus Auth, DB und Storage. Nur mit Admin-Token aufrufbar. Pfad: `supabase/functions/admin-delete-user/index.ts`
 
-### Wichtige RPC-Funktionen
-
-- **`seed_birthday_rounds`** – Erstellt automatisch fällige Geburtstags-Runden für den aktuellen Monat
-
----
-
-## 🗄️ Supabase Live-Datenbankzugriff (für KI-Entwicklung)
-
-Für die KI-gestützte Entwicklung (Claude Code) ist ein direkter Datenbankzugriff eingerichtet.
-
-### Verbindung
-
-- **URL:** `https://bcbqnkycjroiskwqcftc.supabase.co`
-- **Key:** Service-Role-Key (lokal in `.env.local` gespeichert – **nicht auf GitHub!**)
-- **Datei:** `F:\GitHub\steinmetz-stammtisch-app\.env.local`
-
-### Abfrage-Methode (curl)
+### Live-Datenbankzugriff (für KI-Entwicklung mit Claude)
 
 ```bash
+# Service-Role-Key aus .env.local verwenden
 SUPA_URL="https://bcbqnkycjroiskwqcftc.supabase.co"
-SUPA_KEY="<service_role_key aus .env.local>"
+SUPA_KEY="<service_role_key>"
 
-# Beispiel: Alle Profile
 curl -s "$SUPA_URL/rest/v1/profiles?select=*" \
   -H "apikey: $SUPA_KEY" \
   -H "Authorization: Bearer $SUPA_KEY"
@@ -417,255 +252,108 @@ curl -s "$SUPA_URL/rest/v1/profiles?select=*" \
 
 ---
 
-## ⚙️ Konfiguration (Auth & Supabase)
+## ⚙️ Auth & Konfiguration
 
-### Supabase-Projekt
-
-- **URL:** `https://bcbqnkycjroiskwqcftc.supabase.co`
-- **Anon-Key:** In `src/lib/supabase.ts` (öffentlich, sicher im Frontend)
-- **Service-Role-Key:** ⚠️ Geheim! Lokal in `.env.local` (gitignored). NIE ins Frontend!
-
-### Auth Redirect URLs
-
-Im Supabase Dashboard unter **Authentication → URL Configuration**:
+### Supabase Auth Redirect URLs
 
 | Typ | URL |
 |---|---|
 | Site URL | `https://stammtisch-app.vercel.app` |
-| Redirect (Web) | `https://stammtisch-app.vercel.app/**` |
-| Redirect (App) | `stammtisch://auth-callback` |
-| Redirect (Dev) | `https://auth.expo.io/@sbludau/steinmetz-stammtisch-app` |
+| Redirect Web | `https://stammtisch-app.vercel.app/**` |
+| Redirect App | `stammtisch://auth-callback` |
+| Redirect Dev | `https://auth.expo.io/@sbludau/steinmetz-stammtisch-app` |
 
----
+### OTA-Update Konfiguration (`app.json`)
 
-## ☁️ Deployment: Web (Vercel)
-
-Das Web-Deployment läuft **vollautomatisch** bei jedem Push auf `main`.
-
-1. Push auf GitHub `main`
-2. Vercel erkennt den Push und führt `npm run build:web` aus
-3. Neue Version ist live auf [stammtisch-app.vercel.app](https://stammtisch-app.vercel.app)
-
-**`vercel.json`** (SPA-Routing, verhindert 404 bei Direktlinks):
 ```json
-{
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+"runtimeVersion": { "policy": "appVersion" },
+"updates": {
+  "url": "https://u.expo.dev/333c92f5-6dd8-4ff8-813a-a846668c3be3",
+  "enabled": true,
+  "checkAutomatically": "ON_LOAD"
 }
 ```
 
-> ⚠️ Auth (Login) funktioniert **nur** auf der Produktions-Domain. Vercel Preview-URLs funktionieren nicht mit Supabase-Login.
+`runtimeVersion: appVersion` bedeutet: Ein OTA-Update für APK v1.0.0 wird nur auf APK v1.0.0 eingespielt. Verhindert inkompatible Updates wenn eine neue APK mit geänderter nativer Konfiguration rauskommt.
 
 ---
 
-## 🤖 Deployment: Android (EAS Build)
+## ☁️ Deployments
 
-### Build-Profile (`eas.json`)
+### Web (Vercel) – vollautomatisch
 
-| Profil | Zweck | Wann verwenden? |
-|---|---|---|
-| `development` | Development-APK mit Dev-Client | Einmalig für lokale Entwicklung |
-| `preview` | Standalone APK zum Testen | Zum Weitergeben / auf echtem Gerät testen |
-| `production` | Play-Store-Build | Für offizielle Releases |
+Push auf `main` → Vercel baut automatisch → live auf [stammtisch-app.vercel.app](https://stammtisch-app.vercel.app)
 
-### Development-Build (für lokale Entwicklung)
+> ⚠️ Login funktioniert **nur** auf der Produktions-Domain, nicht auf Vercel Preview-URLs.
 
-```bash
-# Einmalig bauen (Cloud):
-eas build -p android --profile development
+### Android – EAS Build-Profile (`eas.json`)
 
-# APK auf Emulator installieren:
-adb install <pfad-zur-apk.apk>
-
-# Danach täglich nur noch:
-npx expo start -c
-```
-
-### Preview-APK (zum Weitergeben)
-
-```bash
-eas build -p android --profile preview
-# → Link zum APK-Download per E-Mail + EAS-Dashboard
-```
-
-### Aktueller Development-Build
-
-- **Build-ID:** `9abc537e-ed5c-4dd3-b4a4-d68e1699c703`
-- **Erstellt:** 16.03.2026
-- **Installiert auf:** Medium Phone API 36.1 Emulator
-
----
-
-## 📲 OTA-Updates (App-Update ohne neue APK)
-
-Ab v0.4.5 können reine Code-Änderungen (JS/TS) direkt an alle Nutzer gepusht werden — **ohne neue APK**.
-Nutzer sehen beim nächsten App-Start automatisch einen Dialog und können die neue Version sofort laden.
-
-### Wann OTA, wann neuer Build?
-
-| Situation | Was tun? |
+| Profil | Zweck |
 |---|---|
-| Code geändert (Features, Bugfixes, Design) | `eas update` → OTA, kein neuer Build |
-| Neue native Bibliothek installiert (`npx expo install ...`) | `eas build` → neue APK nötig |
-| Expo SDK-Version aktualisiert | `eas build` → neue APK nötig |
-| `app.json` geändert (Icons, Splash, Berechtigungen) | `eas build` → neue APK nötig |
+| `development` | Dev-APK mit Dev-Client (einmalig für Emulator) |
+| `preview` | Standalone APK zum Weitergeben (OTA-Channel: preview) |
+| `production` | Play-Store-Build (OTA-Channel: production) |
 
-> **Faustregel:** 95% aller Änderungen sind OTA. Neuer Build nur wenn native Dinge anfassen werden.
+### Supabase Keep-Alive
 
----
-
-### OTA-Update starten (PowerShell, Projektordner)
-
-```powershell
-cd "F:\GitHub\steinmetz-stammtisch-app"
-eas update --channel preview --message "kurze beschreibung was sich geändert hat"
-```
-
-Das dauert ~1 Minute. Danach bekommen alle Nutzer beim nächsten App-Start den Update-Dialog.
-
-**Beispiele für die `--message` (nur für dich im EAS-Dashboard sichtbar, nicht für Nutzer):**
-```powershell
-eas update --channel preview --message "überfällige Geburtstagsrunden auf Startseite"
-eas update --channel preview --message "bugfix stammtisch-detailseite"
-eas update --channel preview --message "v0.4.6: neues feature xyz"
-```
-
-### Was sehen die Nutzer?
-
-Der Dialog erscheint automatisch beim nächsten App-Start:
-- **„Update verfügbar 🎉"** – Neue Funktionen und Verbesserungen stehen bereit.
-- Button **„Jetzt neu starten"** → App startet sofort mit neuem Code (~5 Sek.)
-- Button **„Später"** → Update wird beim übernächsten Start automatisch aktiv
+GitHub Actions Workflow (`.github/workflows/supabase-ping.yml`) pingt die Datenbank alle 3 Tage, damit das kostenlose Supabase-Projekt nicht einschläft.
 
 ---
 
-### Vollständiger Workflow: Code ändern → Nutzer bekommen Update
+## 🚀 Ersteinrichtung (einmalig, z.B. auf neuem Rechner)
 
 ```powershell
-# 1. Expo Dev Server starten (zum Testen im Emulator)
-npx expo start --clear
-
-# 2. [Code ändern und im Emulator testen]
-
-# 3. Änderungen committen
-git add .
-git commit -m "feat: was wurde geändert"
-git push
-
-# 4. OTA-Update an alle Nutzer pushen
-eas update --channel preview --message "was sich geändert hat"
-```
-
-**Das war's.** Kein APK-Build, kein APK-Link verschicken, keine Neuinstallation für die Nutzer.
-
----
-
-### Neuen APK-Build erstellen (nur wenn nötig, siehe Tabelle oben)
-
-```powershell
-cd "F:\GitHub\steinmetz-stammtisch-app"
-eas build --profile preview --platform android
-```
-
-Dauert ~10–15 Minuten in der Cloud. Den Download-Link findest du danach auf
-[expo.dev](https://expo.dev) unter deinem Projekt oder direkt im Terminal-Output.
-Den Link einmalig per WhatsApp/E-Mail an alle Nutzer schicken.
-
----
-
-## 🔄 Git-Workflow
-
-### Täglich (Änderungen einpflegen)
-
-```bash
-# 1. Aktuellen Stand holen:
-git switch main
-git pull
-
-# 2. Feature-Branch erstellen:
-git checkout -b feat/mein-neues-feature
-
-# 3. Entwickeln, dann committen:
-git add .
-git commit -m "feat: kurze beschreibung was geändert wurde"
-git push -u origin HEAD
-
-# 4. Auf GitHub: Pull Request erstellen → Merge
-```
-
-### Commit-Message-Konventionen
-
-| Präfix | Bedeutung |
-|---|---|
-| `feat:` | Neue Funktion |
-| `fix:` | Bug-Fix |
-| `design:` | Nur visuelle Änderungen |
-| `docs:` | Dokumentation |
-| `refactor:` | Code-Umstrukturierung ohne neue Funktion |
-
-### Notfall-Reset
-
-```bash
-git fetch --all
-git reset --hard origin/main
-git clean -fdx
+# 1. Repo klonen
+git clone https://github.com/SBludau/steinmetz-stammtisch-app.git
+cd steinmetz-stammtisch-app
 npm ci
+
+# 2. Android Studio installieren
+winget install Google.AndroidStudio --accept-package-agreements --accept-source-agreements
+# → Setup-Assistent: Standard wählen → SDK wird heruntergeladen
+
+# 3. Umgebungsvariablen setzen
+[System.Environment]::SetEnvironmentVariable("ANDROID_HOME", "C:\Users\<USER>\AppData\Local\Android\Sdk", "User")
+[System.Environment]::SetEnvironmentVariable("JAVA_HOME", "C:\Program Files\Android\Android Studio\jbr", "User")
+
+# 4. EAS CLI installieren & einloggen
+npm install -g eas-cli
+eas login   # → Expo-Account: sbludau
+
+# 5. Emulator erstellen: Android Studio → Device Manager → + → Medium Phone → API 36 → Finish
+
+# 6. Development-APK bauen und auf Emulator installieren (einmalig)
+eas build -p android --profile development
+adb install <pfad-zur-apk.apk>
 ```
 
 ---
 
-## ⚡ Spickzettel (Alle Befehle)
+## ⚡ Alle Befehle auf einen Blick
 
 ### Tägliche Entwicklung
-
-| Befehl | Beschreibung |
+| Befehl | Was passiert |
 |---|---|
-| `npx expo start -c` | Metro-Bundler starten (mit Cache-Reset) |
-| `a` (im Metro-Terminal) | App auf Android-Emulator öffnen |
-| `r` (im Metro-Terminal) | App neu laden |
-| `w` (im Metro-Terminal) | Web-Version im Browser öffnen |
-
-### Installation & Setup
-
-| Befehl | Beschreibung |
-|---|---|
-| `npm ci` | Alle Abhängigkeiten installieren (nach git pull) |
-| `npm install -g eas-cli` | EAS CLI global installieren |
-| `eas login` | EAS-Account einloggen (expo.dev Passwort) |
-
-### Android / Emulator
-
-| Befehl | Beschreibung |
-|---|---|
-| `adb devices` | Verbundene Geräte/Emulatoren anzeigen |
-| `adb install <datei.apk>` | APK auf Emulator installieren |
-
-### EAS Cloud-Builds
-
-| Befehl | Beschreibung |
-|---|---|
-| `eas build -p android --profile development` | Development-APK bauen (einmalig) |
-| `eas build --profile preview --platform android` | Standalone APK zum Weitergeben (nur bei nativen Änderungen) |
-| `eas build -p android --profile production` | Play-Store-Build |
-
-### OTA-Updates (kein neuer APK-Build nötig)
-
-| Befehl | Beschreibung |
-|---|---|
-| `eas update --channel preview --message "..."` | Code-Update an alle Nutzer pushen (~1 Min) |
-
-### Supabase
-
-| Befehl | Beschreibung |
-|---|---|
-| `npx supabase login` | Supabase CLI einloggen |
-| `npx supabase functions deploy admin-delete-user` | Edge Function hochladen |
+| `npx expo start --clear` | Metro-Server starten |
+| `a` (im Terminal) | App im Emulator öffnen |
+| `r` (im Terminal) | App neu laden |
+| `Ctrl+C` | Server beenden |
 
 ### Git
-
-| Befehl | Beschreibung |
+| Befehl | Was passiert |
 |---|---|
-| `git status` | Was hat sich geändert? |
 | `git pull` | Neuesten Stand holen |
-| `git checkout -b feat/name` | Neuen Feature-Branch erstellen |
-| `git add . && git commit -m "..."` | Änderungen speichern |
-| `git push -u origin HEAD` | Branch auf GitHub hochladen |
+| `git add . && git commit -m "..."` | Speichern |
+| `git push` | Auf GitHub hochladen |
+
+### Updates & Builds
+| Befehl | Was passiert |
+|---|---|
+| `eas update --channel preview --message "..."` | OTA-Update an alle Nutzer (~1 Min) |
+| `eas build --profile preview --platform android` | Neue APK bauen (~15 Min, selten nötig) |
+
+### Notfall
+| Befehl | Was passiert |
+|---|---|
+| `npm ci` | Abhängigkeiten neu installieren |
+| `git reset --hard origin/main` | Alle lokalen Änderungen verwerfen |
