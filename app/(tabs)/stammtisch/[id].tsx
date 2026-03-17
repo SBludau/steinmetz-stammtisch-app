@@ -100,6 +100,7 @@ export default function StammtischEditScreen() {
 
   // Offene Geburtstags-Runden (fällige)
   const [dueRounds, setDueRounds] = useState<BR[]>([])
+  const [approvedBirthdayRounds, setApprovedBirthdayRounds] = useState<BR[]>([])
   const [loadingRounds, setLoadingRounds] = useState(true)
   const [roundsErr, setRoundsErr] = useState<string | null>(null)
 
@@ -281,6 +282,7 @@ export default function StammtischEditScreen() {
         .filter(r => !approvedKeys.has(`${idKeyFor(r)}:${monthKeyFor(r)}`))
 
       setDueRounds(unapprovedFiltered)
+      setApprovedBirthdayRounds(rows.filter(r => !!r.approved_at))
       // ---- Ende Duplikat-Filter ----
     } catch (e: any) {
       setRoundsErr(e?.message ?? 'Fehler beim Laden der Geburtstags-Runden.')
@@ -916,6 +918,13 @@ export default function StammtischEditScreen() {
     if (authUserId && givenLinkedByMonth.get(authUserId)?.has(monthYYYYMM)) return true
     if (profileId != null && givenUnlinkedByMonth.get(profileId)?.has(monthYYYYMM)) return true
     if (dueRound && (dueRound.settled_stammtisch_id != null || !!dueRound.settled_at)) return true
+    // Prüfe genehmigte Runden aus dem Jahres-Load (deckt Runden ab, die an anderen Stammtischen gegeben wurden)
+    if (approvedBirthdayRounds.some(r => {
+      const personMatch = (authUserId && r.auth_user_id === authUserId) ||
+                          (profileId != null && r.profile_id === profileId)
+      if (!personMatch) return false
+      return effectiveDueMonth(r) === monthYYYYMM
+    })) return true
     return false
   }
 
@@ -961,7 +970,7 @@ export default function StammtischEditScreen() {
     return [...fromDB, ...fromProfiles]
       .sort((a, b) => effectiveDueMonth(a).localeCompare(effectiveDueMonth(b)))
   }, [dueRounds, currentMonthYYYYMM, effectiveDueMonth, profiles, date,
-      givenLinkedByMonth, givenUnlinkedByMonth])
+      givenLinkedByMonth, givenUnlinkedByMonth, approvedBirthdayRounds])
 
   // Sichtbarkeiten (muss nach overdueRounds stehen)
   const showBirthdayBox =
