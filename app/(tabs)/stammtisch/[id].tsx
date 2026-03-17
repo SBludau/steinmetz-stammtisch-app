@@ -95,6 +95,7 @@ export default function StammtischEditScreen() {
 
   // Rollen/Moderation
   const [myRole, setMyRole] = useState<Role>('member')
+  const [myAuthUserId, setMyAuthUserId] = useState<string | null>(null)
   const isAdmin = myRole === 'admin' || myRole === 'superuser'
 
   // Offene Geburtstags-Runden (fällige)
@@ -158,12 +159,13 @@ export default function StammtischEditScreen() {
     }
   }, [idNum])
 
-  // Rolle
+  // Rolle + eigene Auth-ID
   useEffect(() => {
     ;(async () => {
       const { data: u } = await supabase.auth.getUser()
       const uid = u?.user?.id
       if (!uid) return
+      setMyAuthUserId(uid)
       const { data: me } = await supabase.from('profiles').select('role').eq('auth_user_id', uid).maybeSingle()
       setMyRole(((me?.role as Role) ?? 'member'))
     })()
@@ -401,6 +403,36 @@ export default function StammtischEditScreen() {
   useEffect(() => { loadDonors() }, [loadDonors])
   useEffect(() => { if (isAdmin) loadModeration() }, [isAdmin, loadModeration])
 
+  // Realtime: sofortige Updates für alle Nutzer ohne App-Neustart
+  useEffect(() => {
+    if (!Number.isFinite(idNum)) return
+    const brChannel = supabase
+      .channel(`br_${idNum}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'birthday_rounds',
+        filter: `settled_stammtisch_id=eq.${idNum}`,
+      }, () => {
+        loadDonors()
+        loadBirthdayRounds()
+        if (isAdmin) loadModeration()
+      })
+      .subscribe()
+    const srChannel = supabase
+      .channel(`sr_${idNum}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'spender_rounds',
+        filter: `stammtisch_id=eq.${idNum}`,
+      }, () => {
+        loadDonors()
+        if (isAdmin) loadModeration()
+      })
+      .subscribe()
+    return () => {
+      supabase.removeChannel(brChannel)
+      supabase.removeChannel(srChannel)
+    }
+  }, [idNum, isAdmin, loadDonors, loadBirthdayRounds, loadModeration])
+
   const toggleAttendanceLinked = useCallback(async (authUserId: string) => {
     if (!Number.isFinite(idNum)) return
     const current = attLinked[authUserId] ?? 'declined'
@@ -439,14 +471,25 @@ export default function StammtischEditScreen() {
     }
   }, [attUnlinked, idNum])
 
-  // *** due_month anhand des Geburtstagsmonats des Profils im Jahr des Stammtischs ***
+  // *** due_month anhand des Geburtstagsmonats des Profils ***
+  // Wenn der Geburtsmonat nach dem Stammtisch-Monat liegt, ist die Runde aus dem Vorjahr fällig.
+  // Zuerst wird geprüft ob bereits eine offene Runde in dueRounds existiert – falls ja, wird deren due_month verwendet.
   const dueFirstForProfileThisYear = useCallback((prof?: Profile | null) => {
     const fallback = firstOfMonth(date)
     if (!prof?.birthday) return fallback
+    // Prüfe ob bereits eine offene Runde für dieses Profil vorhanden ist
+    const existing = dueRounds.find(r =>
+      (prof.id != null && r.profile_id === prof.id) ||
+      (prof.auth_user_id && r.auth_user_id === prof.auth_user_id)
+    )
+    if (existing) return existing.due_month.slice(0, 7) + '-01'
     const birthMM = prof.birthday.slice(5, 7) // 'MM'
-    const year = date ? date.slice(0, 4) : String(new Date().getFullYear())
-    return `${year}-${birthMM}-01`
-  }, [date])
+    const currentMM = date ? date.slice(5, 7) : '01'
+    const currentYear = date ? Number(date.slice(0, 4)) : new Date().getFullYear()
+    // Geburtsmonat liegt nach dem Stammtisch-Monat → Runde aus dem Vorjahr
+    const dueYear = birthMM > currentMM ? currentYear - 1 : currentYear
+    return `${dueYear}-${birthMM}-01`
+  }, [date, dueRounds])
 
   // „Gegeben“ (linked) – Admin darf Attendance ignorieren; Zeitfenster-Sperre aktiv
   async function givenCurrentOrOverdue(userId: string, roundId?: number) {
@@ -613,6 +656,30 @@ export default function StammtischEditScreen() {
     }
   }
 
+  // Edle Spender Runde für ein bestimmtes Profil (nur Admin/SU)
+  async function giveSpenderRoundForProfile(profileId: number) {
+    if (!Number.isFinite(idNum) || !date) return
+    if (!isAdmin) {
+      Alert.alert('Nicht erlaubt', 'Nur Admin/Superuser können Spender-Runden für andere verbuchen.')
+      return
+    }
+    try {
+      const prof = profiles.find(p => p.id === profileId) || null
+      const payload: any = {
+        auth_user_id: prof?.auth_user_id ?? null,
+        profile_id: profileId,
+        stammtisch_id: idNum,
+      }
+      const { error } = await supabase.from('spender_rounds').insert([payload])
+      if (error) throw error
+      await loadDonors()
+      if (isAdmin) await loadModeration()
+      Alert.alert('Erfasst', 'Edle Spender Runde wurde verbucht.')
+    } catch (e: any) {
+      Alert.alert('Fehler', e?.message ?? 'Konnte Spender-Runde nicht verbuchen.')
+    }
+  }
+
   // Speichern
   const save = useCallback(async () => {
     if (!Number.isFinite(idNum)) return
@@ -685,9 +752,13 @@ export default function StammtischEditScreen() {
     [profiles]
   )
 
-  // nur bestätigte Spender oben anzeigen
-  const approvedExtraDonors = useMemo(
-    () => donors.filter(d => !!d.approved_at && d.first_due_stammtisch_id == null),
+  // Alle Runden dieses Stammtischs (Geburtstag + Spender): genehmigt und ausstehend
+  const approvedAllDonors = useMemo(
+    () => donors.filter(d => !!d.approved_at),
+    [donors]
+  )
+  const pendingAllDonors = useMemo(
+    () => donors.filter(d => !d.approved_at),
     [donors]
   )
 
@@ -889,8 +960,19 @@ export default function StammtischEditScreen() {
     }
     if (!showButton) return null
     return (
-      <Pressable disabled={!canPress} onPress={onPress}>
-        <Text style={{ color: canPress ? colors.gold : '#999' }}>Gegeben</Text>
+      <Pressable
+        disabled={!canPress}
+        onPress={onPress}
+        style={{
+          borderWidth: 1,
+          borderColor: canPress ? colors.gold : '#555',
+          borderRadius: 8,
+          backgroundColor: canPress ? '#B00020' : 'transparent',
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+        }}
+      >
+        <Text style={{ color: canPress ? colors.gold : '#555', fontSize: 13 }}>🎂 Gegeben</Text>
       </Pressable>
     )
   }
@@ -1012,7 +1094,7 @@ export default function StammtischEditScreen() {
                           hasGiven,
                           isPending,
                           canPress: canClick,
-                          showButton: !!p.auth_user_id || isAdmin,
+                          showButton: isAdmin || p.auth_user_id === myAuthUserId,
                           onPress,
                         })
 
@@ -1094,7 +1176,7 @@ export default function StammtischEditScreen() {
                           hasGiven,
                           isPending,
                           canPress: canClick,
-                          showButton: !!r.auth_user_id || isAdmin,
+                          showButton: isAdmin || r.auth_user_id === myAuthUserId,
                           onPress,
                         })
 
@@ -1140,46 +1222,82 @@ export default function StammtischEditScreen() {
               </Box>
             )}
 
-            {/* Edle Spender – nur anzeigen, wenn es Runden für diesen Stammtisch gibt */}
+            {/* Runden dieses Stammtischs (Geburtstag + Spender, bestätigt + ausstehend) */}
             {showDonorsBox && (
               <Box>
-                <Text style={{ ...type.caption, marginBottom: 8 }}>Edle Spender dieses Stammtischs</Text>
+                <Text style={{ ...type.caption, marginBottom: 8 }}>Runden dieses Stammtischs</Text>
                 {loadingDonors ? (
                   <View style={{ padding: 8, alignItems: 'center' }}>
                     <ActivityIndicator color={colors.gold} />
                   </View>
-                ) : approvedExtraDonors.length === 0 ? (
-                  <Text style={type.body}>Noch keine bestätigten Runden.</Text>
                 ) : (
-                  <ScrollView style={{ maxHeight: 220 }} contentContainerStyle={{ paddingBottom: 6 }} showsVerticalScrollIndicator>
-                    {approvedExtraDonors.map((d) => {
-                      const prof = findProfileBy(d.auth_user_id, d.profile_id)
-                      const name = prof ? fullName(prof) : (d.auth_user_id ?? 'Unverknüpft')
-                      const avatar = avatarUrlFor(prof || null)
-                      return (
-                        <View
-                          key={`donor-${d.id}`}
-                          style={{
-                            flexDirection: 'row', alignItems: 'center', gap: 10,
-                            borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 8,
-                          }}
-                        >
-                          {avatar ? (
-                            <Image
-                              source={{ uri: avatar }}
-                              style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
-                            />
-                          ) : (
+                  <ScrollView style={{ maxHeight: 260 }} contentContainerStyle={{ paddingBottom: 6 }} showsVerticalScrollIndicator>
+                    {approvedAllDonors.length === 0 && pendingAllDonors.length === 0 ? (
+                      <Text style={type.body}>Noch keine Runden.</Text>
+                    ) : (
+                      <>
+                        {approvedAllDonors.map((d) => {
+                          const prof = findProfileBy(d.auth_user_id, d.profile_id)
+                          const name = prof ? fullName(prof) : (d.auth_user_id ?? 'Unverknüpft')
+                          const avatar = avatarUrlFor(prof || null)
+                          const isBirthday = d.first_due_stammtisch_id != null
+                          return (
                             <View
-                              style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' }}
+                              key={`donor-${d.id}`}
+                              style={{
+                                flexDirection: 'row', alignItems: 'center', gap: 10,
+                                borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 8,
+                              }}
                             >
-                              <Text style={{ color: colors.text, fontSize: 12 }}>🥂</Text>
+                              {avatar ? (
+                                <Image
+                                  source={{ uri: avatar }}
+                                  style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
+                                />
+                              ) : (
+                                <View
+                                  style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' }}
+                                >
+                                  <Text style={{ color: colors.text, fontSize: 12 }}>{isBirthday ? '🎂' : '🥂'}</Text>
+                                </View>
+                              )}
+                              <Text style={{ ...type.body, flex: 1 }}>{name}</Text>
+                              <Text style={{ color: CONFIRMED_COLOR, fontSize: 16 }}>✓</Text>
                             </View>
-                          )}
-                          <Text style={type.body}>{name}</Text>
-                        </View>
-                      )
-                    })}
+                          )
+                        })}
+                        {pendingAllDonors.map((d) => {
+                          const prof = findProfileBy(d.auth_user_id, d.profile_id)
+                          const name = prof ? fullName(prof) : (d.auth_user_id ?? 'Unverknüpft')
+                          const avatar = avatarUrlFor(prof || null)
+                          const isBirthday = d.first_due_stammtisch_id != null
+                          return (
+                            <View
+                              key={`donor-pending-${d.id}`}
+                              style={{
+                                flexDirection: 'row', alignItems: 'center', gap: 10,
+                                borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 8,
+                              }}
+                            >
+                              {avatar ? (
+                                <Image
+                                  source={{ uri: avatar }}
+                                  style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border }}
+                                />
+                              ) : (
+                                <View
+                                  style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' }}
+                                >
+                                  <Text style={{ color: colors.text, fontSize: 12 }}>{isBirthday ? '🎂' : '🥂'}</Text>
+                                </View>
+                              )}
+                              <Text style={{ ...type.body, flex: 1 }}>{name}</Text>
+                              <Text style={{ ...type.caption, color: PENDING_COLOR }}>⏳</Text>
+                            </View>
+                          )
+                        })}
+                      </>
+                    )}
                   </ScrollView>
                 )}
               </Box>
@@ -1320,23 +1438,40 @@ export default function StammtischEditScreen() {
                             <Text style={type.body}>{fullName(p)}</Text>
 
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                              {/* Admin/SU – Spender-Runde auch für Unlinked */}
+                              {/* Admin – Geburtstagsrunde oder Edle-Spender-Runde für Unlinked */}
                               {isAdmin && !isLinked ? (
-                                <Pressable
-                                  onPress={() => givenForUnlinkedProfile(p.id)}
-                                  style={{
-                                    width: 28,
-                                    height: 28,
-                                    borderRadius: 14,
-                                    borderWidth: 1,
-                                    borderColor: colors.border,
-                                    backgroundColor: colors.cardBg,
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                  }}
-                                >
-                                  <Text style={{ fontSize: 16 }}>🎁</Text>
-                                </Pressable>
+                                <>
+                                  <Pressable
+                                    onPress={() => givenForUnlinkedProfile(p.id)}
+                                    style={{
+                                      width: 28,
+                                      height: 28,
+                                      borderRadius: 14,
+                                      borderWidth: 1,
+                                      borderColor: colors.border,
+                                      backgroundColor: colors.cardBg,
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <Text style={{ fontSize: 16 }}>🎂</Text>
+                                  </Pressable>
+                                  <Pressable
+                                    onPress={() => giveSpenderRoundForProfile(p.id)}
+                                    style={{
+                                      width: 28,
+                                      height: 28,
+                                      borderRadius: 14,
+                                      borderWidth: 1,
+                                      borderColor: colors.border,
+                                      backgroundColor: colors.cardBg,
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <Text style={{ fontSize: 16 }}>🥂</Text>
+                                  </Pressable>
+                                </>
                               ) : null}
 
                               {/* Anwesenheit */}

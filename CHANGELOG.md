@@ -12,6 +12,26 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.3] - 2026-03-17
+
+**Geänderte Dateien**
+- `app/(tabs)/stammtisch/[id].tsx`
+
+### Hinzugefügt
+- **Realtime-Updates für Runden:** Supabase Realtime-Subscriptions auf `birthday_rounds` und `spender_rounds` – Rundenbox und Moderationsbereich aktualisieren sich sofort ohne Reload oder Ausloggen.
+- **Spender-Runde für unverknüpfte Profile:** Neue Funktion `giveSpenderRoundForProfile` – Admin kann für Mitglieder ohne App-Account direkt eine Edle-Spender-Runde verbuchen.
+- **Zwei Buttons im Teilnehmer-Bereich für Unlinked:** Statt einem generischen 🎁-Button jetzt zwei getrennte Buttons: 🎂 für Geburtstagsrunde und 🥂 für Edle-Spender-Runde.
+
+### Geändert
+- **Runden-Box umgebaut:** „Runden dieses Stammtischs” zeigt jetzt alle Geburtstags- (🎂) und Spender-Runden (🥂) gemeinsam an – ausstehend (⏳) und genehmigt (✓) – statt nur Spender-Runden.
+- **Geburtstagsrunden-Button nur für Berechtigte:** „🎂 Gegeben”-Button in der Geburtstagsrunden-Box ist nur für Admin/Superuser und die betroffene Person selbst sichtbar (nicht mehr für alle Nutzer).
+- **`dueFirstForProfileThisYear` Jahresberechnung korrigiert:** Geburtstag im Dezember + Stammtisch im März führte zu `2026-12-01` (falsch). Fix: Wenn Geburtsmonat > aktueller Monat, wird Vorjahr verwendet. Außerdem: bestehende offene Runde wird wiederverwendet statt neu berechnet.
+
+### Behoben
+- **`approvedExtraDonors` schloß Geburtstagsrunden aus:** Filter `first_due_stammtisch_id == null` entfernt; neue `useMemo`-Variablen `approvedAllDonors` und `pendingAllDonors` berücksichtigen alle Rundentypen.
+
+---
+
 ## [0.4.2] - 2026-03-16
 
 **Geänderte Dateien**
