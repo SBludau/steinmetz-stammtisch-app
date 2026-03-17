@@ -20,8 +20,9 @@ Entwickelt mit **Expo (React Native)**, **TypeScript** und **Supabase** (Auth, D
 9. [⚙️ Konfiguration (Auth & Supabase)](#️-konfiguration-auth--supabase)
 10. [☁️ Deployment: Web (Vercel)](#️-deployment-web-vercel)
 11. [🤖 Deployment: Android (EAS Build)](#-deployment-android-eas-build)
-12. [🔄 Git-Workflow](#-git-workflow)
-13. [⚡ Spickzettel (Alle Befehle)](#-spickzettel-alle-befehle)
+12. [📲 OTA-Updates (App-Update ohne neue APK)](#-ota-updates-app-update-ohne-neue-apk)
+13. [🔄 Git-Workflow](#-git-workflow)
+14. [⚡ Spickzettel (Alle Befehle)](#-spickzettel-alle-befehle)
 
 ---
 
@@ -521,6 +522,83 @@ eas build -p android --profile preview
 
 ---
 
+## 📲 OTA-Updates (App-Update ohne neue APK)
+
+Ab v0.4.5 können reine Code-Änderungen (JS/TS) direkt an alle Nutzer gepusht werden — **ohne neue APK**.
+Nutzer sehen beim nächsten App-Start automatisch einen Dialog und können die neue Version sofort laden.
+
+### Wann OTA, wann neuer Build?
+
+| Situation | Was tun? |
+|---|---|
+| Code geändert (Features, Bugfixes, Design) | `eas update` → OTA, kein neuer Build |
+| Neue native Bibliothek installiert (`npx expo install ...`) | `eas build` → neue APK nötig |
+| Expo SDK-Version aktualisiert | `eas build` → neue APK nötig |
+| `app.json` geändert (Icons, Splash, Berechtigungen) | `eas build` → neue APK nötig |
+
+> **Faustregel:** 95% aller Änderungen sind OTA. Neuer Build nur wenn native Dinge anfassen werden.
+
+---
+
+### OTA-Update starten (PowerShell, Projektordner)
+
+```powershell
+cd "F:\GitHub\steinmetz-stammtisch-app"
+eas update --channel preview --message "kurze beschreibung was sich geändert hat"
+```
+
+Das dauert ~1 Minute. Danach bekommen alle Nutzer beim nächsten App-Start den Update-Dialog.
+
+**Beispiele für die `--message` (nur für dich im EAS-Dashboard sichtbar, nicht für Nutzer):**
+```powershell
+eas update --channel preview --message "überfällige Geburtstagsrunden auf Startseite"
+eas update --channel preview --message "bugfix stammtisch-detailseite"
+eas update --channel preview --message "v0.4.6: neues feature xyz"
+```
+
+### Was sehen die Nutzer?
+
+Der Dialog erscheint automatisch beim nächsten App-Start:
+- **„Update verfügbar 🎉"** – Neue Funktionen und Verbesserungen stehen bereit.
+- Button **„Jetzt neu starten"** → App startet sofort mit neuem Code (~5 Sek.)
+- Button **„Später"** → Update wird beim übernächsten Start automatisch aktiv
+
+---
+
+### Vollständiger Workflow: Code ändern → Nutzer bekommen Update
+
+```powershell
+# 1. Expo Dev Server starten (zum Testen im Emulator)
+npx expo start --clear
+
+# 2. [Code ändern und im Emulator testen]
+
+# 3. Änderungen committen
+git add .
+git commit -m "feat: was wurde geändert"
+git push
+
+# 4. OTA-Update an alle Nutzer pushen
+eas update --channel preview --message "was sich geändert hat"
+```
+
+**Das war's.** Kein APK-Build, kein APK-Link verschicken, keine Neuinstallation für die Nutzer.
+
+---
+
+### Neuen APK-Build erstellen (nur wenn nötig, siehe Tabelle oben)
+
+```powershell
+cd "F:\GitHub\steinmetz-stammtisch-app"
+eas build --profile preview --platform android
+```
+
+Dauert ~10–15 Minuten in der Cloud. Den Download-Link findest du danach auf
+[expo.dev](https://expo.dev) unter deinem Projekt oder direkt im Terminal-Output.
+Den Link einmalig per WhatsApp/E-Mail an alle Nutzer schicken.
+
+---
+
 ## 🔄 Git-Workflow
 
 ### Täglich (Änderungen einpflegen)
@@ -593,8 +671,14 @@ npm ci
 | Befehl | Beschreibung |
 |---|---|
 | `eas build -p android --profile development` | Development-APK bauen (einmalig) |
-| `eas build -p android --profile preview` | Standalone APK zum Weitergeben |
+| `eas build --profile preview --platform android` | Standalone APK zum Weitergeben (nur bei nativen Änderungen) |
 | `eas build -p android --profile production` | Play-Store-Build |
+
+### OTA-Updates (kein neuer APK-Build nötig)
+
+| Befehl | Beschreibung |
+|---|---|
+| `eas update --channel preview --message "..."` | Code-Update an alle Nutzer pushen (~1 Min) |
 
 ### Supabase
 
