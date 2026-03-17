@@ -12,6 +12,20 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.5] - 2026-03-17
+
+**Geänderte Dateien**
+- `app.json`
+- `eas.json`
+- `app/_layout.tsx`
+- `package.json`
+
+### Hinzugefügt
+- **OTA-Updates (Over-the-Air):** Code-Änderungen werden automatisch beim nächsten App-Start eingespielt – ohne neue APK. Nutzer sehen einen Dialog „Update verfügbar 🎉" und können sofort neu starten oder warten. Technisch: `expo-updates` installiert, `runtimeVersion: { policy: "appVersion" }` und `updates`-Config in `app.json`, `channel`-Felder in `eas.json`, Update-Check-`useEffect` in `app/_layout.tsx`.
+- **Einmalige APK erforderlich:** Alle Nutzer müssen einmalig eine neue APK installieren, um OTA zu aktivieren. Danach sind reine Code-Änderungen ohne neue APK möglich.
+
+---
+
 ## [0.4.4] - 2026-03-17
 
 **Geänderte Dateien**

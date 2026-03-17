@@ -2,7 +2,16 @@
   "expo": {
     "name": "MetzÄpp",
     "slug": "steinmetz-stammtisch-app",
+    "version": "1.0.0",
     "scheme": "stammtisch",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/333c92f5-6dd8-4ff8-813a-a846668c3be3",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD"
+    },
     "icon": "./assets/images/favicon.png",
     "android": {
       "adaptiveIcon": {
