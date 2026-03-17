@@ -415,33 +415,6 @@ curl -s "$SUPA_URL/rest/v1/profiles?select=*" \
   -H "Authorization: Bearer $SUPA_KEY"
 ```
 
-### Live-Datenbankstruktur (Stand 16.03.2026)
-
-**Mitglieder (14 Profile):**
-
-| Name | Rolle | Aktiv | Dauerauftrag |
-|---|---|---|---|
-| Sebastian Bludau | admin | ✅ | ✅ |
-| Timo Glantschnig | superuser | ✅ | ✅ |
-| Andi Fröge | member | ✅ | ✅ |
-| Bert Konijnenberg | member | ✅ | ✅ |
-| Fobbs XX | member | ✅ | ✅ |
-| Marcel Neumann | member | ✅ | ✅ |
-| Martin Maas | member | ✅ | ✅ (Dr.) |
-| Mathi Düllmann | member | ✅ | ✅ |
-| Torben Katzmann | member | ✅ | ✅ |
-| Dani Schulte | member | ✅ | ❌ |
-| Ingo Mass | member | ✅ | ❌ |
-| Markus Hochheiser | member | ❌ | ❌ |
-| Thorsten Eberhartinger | member | ❌ | ❌ |
-| Torben Meiss | member | ❌ | ❌ |
-
-**Vegas-Kasse:**
-- Startbetrag: **-878 €** (01.09.2025)
-- Monatlicher Zuwachs: 20 € × Anzahl aktiver Daueraufträge
-
-**Nächster Stammtisch:** 10.04.2026, Bahnhof Dickscheheide
-
 ---
 
 ## ⚙️ Konfiguration (Auth & Supabase)
