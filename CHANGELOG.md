@@ -12,6 +12,45 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.10] - 2026-08-15
+
+**Geänderte Dateien**
+- `app/(tabs)/stammtisch/[id].tsx`
+
+Dritte und letzte Etappe aus der Prüfung der Runden-Regeln. Diese Etappe
+betrifft den Jahreswechsel. Keine Datenbank-Änderung.
+
+### Behoben
+- **Runde am Jahreswechsel wurde dem falschen Jahr zugeordnet** – Bei einer
+  Dezember-Runde, die in der Datenbank noch nach der alten Rechnung als Januar
+  gespeichert war, hat die App das Jahr vom Stammtisch-Datum genommen. Aus
+  „Dezember 2026" wurde dadurch „Dezember 2027". Die Runde galt anschließend als
+  offen, obwohl sie längst gegeben war. Das Jahr wird jetzt aus dem gespeicherten
+  Wert selbst abgeleitet, inklusive des Sprungs von Januar zurück in den
+  Dezember des Vorjahres.
+- **Überfällige Runden verschwanden zum Jahreswechsel** – Eine im Dezember nicht
+  gegebene Runde tauchte im Januar nicht mehr unter „Überfällige
+  Geburtstagsrunden" auf, weil nur das laufende Jahr durchsucht wurde. Es wird
+  jetzt zusätzlich der gleiche Monat im Vorjahr geprüft – begrenzt durch den
+  Stichtag September 2025, damit keine Runden aus der Zeit davor auftauchen.
+
+### Geändert
+- Die Monatsberechnung für Geburtstagsrunden liegt jetzt an einer einzigen
+  Stelle im Code. Anzeige, Doppel-Prüfung und Überfälligkeits-Liste rechnen
+  dadurch garantiert gleich.
+
+### Geprüft
+- `npx tsc --noEmit`: 196 Meldungen, unverändert gegenüber 0.4.9 (alles
+  vorbestehende Stil-Meldungen, keine neue Fehlerart).
+- `npx expo export --platform android`: erfolgreich durchgelaufen, die App lässt
+  sich also weiterhin bauen.
+- 21 Rechenbeispiele der Monatsberechnung durchgetestet (alte und neue
+  Datenbank-Schreibweise, Dezember/Januar-Wechsel, fehlender Geburtstag,
+  nachträglich geändertes Geburtsdatum, 29. Februar in Schalt- und
+  Nicht-Schaltjahren) – alle bestanden.
+
+---
+
 ## [0.4.9] - 2026-08-15
 
 **Geänderte Dateien**
@@ -57,6 +96,7 @@ den Kern: den Fälligkeitsmonat einer Geburtstagsrunde.
 
 ### Bekannt, noch offen
 - Der Jahreswechsel ist weiterhin nicht korrekt abgedeckt (folgt in Etappe 3).
+  *(erledigt in 0.4.10)*
 
 ---
 

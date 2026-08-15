@@ -66,6 +66,46 @@ const CONFIRMED_COLOR = '#4CAF50'
 const PENDING_COLOR = '#9E9E9E'
 const EARLIEST_DUE_MONTH = '2025-09-01'
 
+// Fälligkeitsmonat (YYYY-MM) einer Geburtstagsrunde.
+//
+// Maßgeblich ist der Geburtsmonat. Der in der Datenbank gespeicherte Monat
+// liefert nur das Jahr – und den ganzen Wert, wenn im Profil kein Geburtstag
+// hinterlegt ist.
+//
+// Zwei Fälle sind zu unterscheiden, weil die Datenbank früher anders gerechnet
+// hat: entweder steht dort bereits der Geburtsmonat, oder der Monat danach.
+// Steht dort Januar und der Geburtstag ist im Dezember, gehört die Runde in den
+// Dezember des VORJAHRES – sonst verschwindet sie beim Stammtisch im Januar aus
+// der Liste der überfälligen Runden (Regel R-17).
+//
+// Als Modul-Funktion (außerhalb der Komponente), damit sie überall im Bildschirm
+// benutzt werden kann, ohne die Reihenfolge der React-Hooks zu verändern.
+function birthdayRoundMonth(
+  birthday: string | null | undefined,
+  dbDueMonth: string | null | undefined,
+  fallbackYear: string
+): string {
+  const raw = (dbDueMonth ?? '').slice(0, 7)
+  if (!birthday) return raw
+
+  const bm = birthday.slice(5, 7)
+  if (!raw) return `${fallbackYear}-${bm}`
+
+  const dbYear = Number(raw.slice(0, 4))
+  const dbMonth = raw.slice(5, 7)
+  if (dbMonth === bm) return `${dbYear}-${bm}`
+
+  const monthBefore = String(((Number(dbMonth) + 10) % 12) + 1).padStart(2, '0')
+  if (monthBefore === bm) {
+    const year = dbMonth === '01' ? dbYear - 1 : dbYear
+    return `${year}-${bm}`
+  }
+
+  // Weder das eine noch das andere (z. B. Geburtsdatum nachträglich geändert):
+  // der Geburtstag im Profil zählt.
+  return `${dbYear}-${bm}`
+}
+
 export default function StammtischEditScreen() {
   const insets = useSafeAreaInsets()
   const router = useRouter()
@@ -293,11 +333,8 @@ export default function StammtischEditScreen() {
         const prof =
           (r.profile_id != null ? profiles.find(p => p.id === r.profile_id) : undefined) ||
           (r.auth_user_id ? profiles.find(p => p.auth_user_id === r.auth_user_id) : undefined)
-        if (prof?.birthday) {
-          const mm = prof.birthday.slice(5, 7)
-          return `${year}-${mm}` // YYYY-MM
-        }
-        return r.due_month.slice(0, 7)
+        // Gleiche Rechnung wie überall sonst (auch über den Jahreswechsel).
+        return birthdayRoundMonth(prof?.birthday ?? null, r.due_month, year)
       }
       const idKeyFor = (r: BR) =>
         r.profile_id != null ? `p:${r.profile_id}` : (r.auth_user_id ? `a:${r.auth_user_id}` : `x:${r.id}`)
@@ -858,17 +895,18 @@ export default function StammtischEditScreen() {
   // Wer an einer Stelle den rohen Datenbankwert vergleicht und an anderer Stelle
   // den Geburtsmonat, bekommt zwei verschiedene Ergebnisse fuer dieselbe Runde –
   // genau daran lag es, dass eine bereits gegebene Runde weiter als offen galt.
+  // Fälligkeitsmonat einer Person – siehe birthdayRoundMonth oben.
+  // WICHTIG: Diese eine Funktion muss überall benutzt werden. Wer an einer
+  // Stelle den rohen Datenbankwert vergleicht und an anderer Stelle den
+  // Geburtsmonat, bekommt zwei verschiedene Ergebnisse für dieselbe Runde –
+  // genau daran lag es, dass eine bereits gegebene Runde weiter als offen galt.
   const monthForPerson = useCallback(
-    (authUserId: string | null, profileId: number | null, fallbackDueMonth: string | null): string => {
-      const year = date ? date.slice(0, 4) : String(new Date().getFullYear())
+    (authUserId: string | null, profileId: number | null, dbDueMonth: string | null): string => {
       const prof =
         (profileId != null ? profiles.find(p => p.id === profileId) : undefined) ||
         (authUserId ? profiles.find(p => p.auth_user_id === authUserId) : undefined)
-      if (prof?.birthday) {
-        const mm = (prof.birthday as string).slice(5, 7)
-        return `${year}-${mm}`
-      }
-      return (fallbackDueMonth ?? '').slice(0, 7)
+      const fallbackYear = date ? date.slice(0, 4) : String(new Date().getFullYear())
+      return birthdayRoundMonth(prof?.birthday ?? null, dbDueMonth, fallbackYear)
     },
     [profiles, date]
   )
@@ -1041,37 +1079,47 @@ export default function StammtischEditScreen() {
     const year = date ? date.slice(0, 4) : String(new Date().getFullYear())
     const fromDB = dueRounds.filter(r => effectiveDueMonth(r) < currentMonthYYYYMM)
 
-    // Profile mit Geburtstag in vergangenen Monaten, die noch keinen DB-Eintrag haben
+    // Profile mit Geburtstag in vergangenen Monaten, die noch keinen DB-Eintrag
+    // haben. Betrachtet werden die letzten zwölf Monate vor diesem Stammtisch,
+    // also auch die Monate des Vorjahres (Regel R-17: überfällige Runden
+    // verfallen zum Jahreswechsel nicht). Vor dem Stichtag wird nichts
+    // nachgetragen.
+    const earliestMonth = EARLIEST_DUE_MONTH.slice(0, 7)
     const fromProfiles: BR[] = profiles
-      .filter(p => {
-        if (!p.birthday) return false
+      .map(p => {
+        if (!p.birthday) return null
         const bMonth = (p.birthday as string).slice(5, 7)
-        return `${year}-${bMonth}` < currentMonthYYYYMM
+        // Liegt der Geburtsmonat in diesem Jahr schon hinter uns, zählt dieses
+        // Jahr; sonst der gleiche Monat im Vorjahr.
+        const thisYear = `${year}-${bMonth}`
+        const monat = thisYear < currentMonthYYYYMM
+          ? thisYear
+          : `${Number(year) - 1}-${bMonth}`
+        if (monat < earliestMonth) return null
+        return { p, monat }
       })
-      .filter(p => {
-        // Skip wenn bereits in dueRounds (unapproved)
+      .filter((x): x is { p: Profile; monat: string } => x !== null)
+      .filter(({ p, monat }) => {
+        // Skip wenn für diesen Monat bereits ein Eintrag in dueRounds steht
         if (dueRounds.some(r =>
-          (r.auth_user_id && r.auth_user_id === p.auth_user_id) ||
-          (r.profile_id != null && r.profile_id === p.id)
+          ((r.auth_user_id && r.auth_user_id === p.auth_user_id) ||
+           (r.profile_id != null && r.profile_id === p.id)) &&
+          effectiveDueMonth(r) === monat
         )) return false
         // Skip wenn bereits gegeben (approved/settled) – checkGiven kennt den vollständigen Status
-        const bMonth = (p.birthday as string).slice(5, 7)
-        if (checkGiven(p.auth_user_id, p.id, `${year}-${bMonth}`)) return false
+        if (checkGiven(p.auth_user_id, p.id, monat)) return false
         return true
       })
-      .map(p => {
-        const bMonth = (p.birthday as string).slice(5, 7)
-        return {
-          id: -(p.id ?? 0) - 1, // negativ = synthetisch, kein Konflikt mit DB-IDs
-          auth_user_id: p.auth_user_id ?? null,
-          profile_id: p.id ?? null,
-          due_month: `${year}-${bMonth}-01`,
-          first_due_stammtisch_id: null,
-          settled_stammtisch_id: null,
-          settled_at: null,
-          approved_at: null,
-        } as BR
-      })
+      .map(({ p, monat }) => ({
+        id: -(p.id ?? 0) - 1, // negativ = synthetisch, kein Konflikt mit DB-IDs
+        auth_user_id: p.auth_user_id ?? null,
+        profile_id: p.id ?? null,
+        due_month: `${monat}-01`,
+        first_due_stammtisch_id: null,
+        settled_stammtisch_id: null,
+        settled_at: null,
+        approved_at: null,
+      } as BR))
 
     return [...fromDB, ...fromProfiles]
       .sort((a, b) => effectiveDueMonth(a).localeCompare(effectiveDueMonth(b)))
