@@ -30,10 +30,13 @@
 --
 -- Warum auth_user_id mitgesetzt wurde
 -- -----------------------------------
--- Der Unique-Schluessel heisst birthday_rounds_auth_due_uniq (auth_user_id,
--- due_month). Bei leerem auth_user_id greift er nicht, und
--- seed_birthday_rounds haette die Dezember-Runde 2025 beim naechsten Lauf
--- erneut angelegt – der Doppeleintrag waere sofort zurueck gewesen.
+-- Die Zeile hatte kein auth_user_id, obwohl das Profil eines hat. Damit griff
+-- der Schluessel birthday_rounds_auth_due_uniq (auth_user_id, due_month) fuer
+-- diese Zeile nicht. Nachtrag vom 16.08.2026: gegen ein erneutes Anlegen durch
+-- seed_birthday_rounds haette zusaetzlich birthday_rounds_profile_due_uq
+-- (profile_id, due_month) geschuetzt – die Zeile war also nicht so ungedeckt,
+-- wie hier zunaechst stand. Das Mitsetzen bleibt trotzdem richtig: es macht die
+-- Zeile zu den uebrigen konsistent und laesst beide Schluessel greifen.
 --
 -- Der neue Wert 2025-12-01 ist migrationsfest: TEIL 2 der noch offenen
 -- Migration laesst ihn unangetastet.

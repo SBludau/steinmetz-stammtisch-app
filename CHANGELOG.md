@@ -12,6 +12,40 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.14] - 2026-08-16
+
+**Geänderte Dateien**
+- `supabase/migrations/2026-08-15_geburtstagsrunden_monat.sql`
+- `supabase/migrations/20260815202340_fix_birthday_round_506.sql`
+
+Nur Migrationsdateien und Dokumentation. Kein App-Code, kein neuer Build nötig.
+
+### Behoben
+- **TEIL 1 der noch offenen Migration hätte eine Schutzregel gelöscht** – Die
+  Funktion `seed_birthday_rounds`, die tatsächlich in der Datenbank läuft, war
+  neuer als die Vorlage, aus der TEIL 1 geschrieben wurde: Sie enthält bereits
+  die Regel „nicht anlegen, wenn im selben Jahr schon eine bestätigte Runde
+  dieser Person existiert". Beim Ersetzen wäre diese Regel ersatzlos
+  verschwunden und der alte Fehler „zwei Runden derselben Person in einem
+  Jahr" zurückgekommen. Die Regel ist jetzt in TEIL 1 enthalten und sucht
+  zusätzlich über `profile_id`, damit auch Zeilen ohne `auth_user_id` erkannt
+  werden.
+
+### Geändert
+- **Trockenlauf-Ergebnis in die Migration eingetragen** – TEIL 0 wurde gegen
+  die Live-Datenbank durchgerechnet (nur gelesen, nichts geändert). Das
+  erwartete Ergebnis steht jetzt als Sollwert in der Datei: 8 Zeilen, davon 3
+  um einen Monat zurück, 0 Löschungen, keine Kollision mit einer
+  Eindeutigkeitsregel. Weicht das Ergebnis beim Ausführen ab, ist etwas
+  dazugekommen und TEIL 2 sollte nicht gestartet werden.
+- **Begründung zur Runden-Korrektur richtiggestellt** – In der Datei zur
+  Korrektur vom 15.08. stand, ohne `auth_user_id` hätte nichts das erneute
+  Anlegen verhindert. Es gibt zusätzlich den Schlüssel
+  `birthday_rounds_profile_due_uq (profile_id, due_month)`, der ebenfalls
+  gegriffen hätte. Die Korrektur selbst bleibt richtig und unverändert.
+
+---
+
 ## [0.4.13] - 2026-08-15
 
 **Geänderte Dateien**

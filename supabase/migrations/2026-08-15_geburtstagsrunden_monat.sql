@@ -28,6 +28,26 @@
 -- Zeigt fuer jede vorhandene Geburtstagsrunde: welchen Monat sie heute hat,
 -- welchen Monat sie nachher haette, und ob sie als Doppeleintrag geloescht
 -- wuerde.
+--
+-- ERWARTETES ERGEBNIS (Trockenlauf gegen die Live-Datenbank am 16.08.2026,
+-- nach der Bereinigung der doppelten Dezember-Runde):
+--
+--   8 Zeilen insgesamt
+--   3 davon werden um einen Monat zurueck verschoben
+--   0 werden geloescht  (es gibt keine Doppeleintraege mehr)
+--
+--   verschoben werden:  2026-04 -> 2026-03   (Geburtstag im Maerz)
+--                       2026-05 -> 2026-04   (Geburtstag im April)
+--                       2026-08 -> 2026-07   (Geburtstag im Juli, noch offen)
+--
+-- Nur die letzte der drei ist eine offene Runde – die beiden anderen sind
+-- laengst gegeben und bestaetigt, da wird nur der Monat geradegerueckt.
+--
+-- Keiner der drei Zielmonate ist bei derselben Person schon belegt, die
+-- Umstellung kann also an keiner Eindeutigkeitsregel scheitern.
+--
+-- Weicht dein Ergebnis davon ab, ist zwischenzeitlich etwas dazugekommen –
+-- dann bitte erst nachsehen, statt TEIL 2 zu starten.
 
 with rounds_with_birthday as (
   select
@@ -89,6 +109,21 @@ order by person, monat_neu, platz;
 -- Zwei Korrekturen:
 --   1. Stichtag 2025-10-01 -> 2025-09-01 (gleich wie in der App)
 --   2. Geburtsmonat statt Folgemonat
+--
+-- NACHTRAG 16.08.2026
+-- -------------------
+-- Beim Abgleich mit der Live-Datenbank kam heraus: die dort laufende Funktion
+-- war neuer als die Vorlage, aus der dieser Teil geschrieben wurde. Sie hatte
+-- bereits eine dritte Regel – "nicht seeden, wenn im selben Jahr schon eine
+-- bestaetigte Runde dieser Person existiert". Der urspruengliche TEIL 1 haette
+-- diese Regel beim Ersetzen ersatzlos entfernt und damit einen alten Fehler
+-- zurueckgeholt (zwei Runden derselben Person in einem Jahr). Die Regel ist
+-- deshalb unten wieder enthalten.
+--
+-- Sie wurde dabei an einer Stelle verbessert: frueher hat sie nur ueber
+-- auth_user_id gesucht. Zeilen, bei denen in birthday_rounds kein
+-- auth_user_id steht (im Bestand gibt es so eine), waeren dabei uebersehen
+-- worden. Jetzt zaehlt auch die Uebereinstimmung ueber profile_id.
 
 create or replace function public.seed_birthday_rounds(
   p_due_month date,
@@ -111,6 +146,18 @@ as $$
     where p.due_month >= date '2025-09-01'
       -- Die Runde gehoert in den Geburtsmonat selbst.
       and extract(month from pr.birthday) = extract(month from p.due_month)
+      -- Nicht seeden, wenn im selben Jahr schon eine bestaetigte Runde
+      -- dieser Person existiert (siehe NACHTRAG oben).
+      and not exists (
+        select 1
+        from public.birthday_rounds br
+        where (
+                (pr.auth_user_id is not null and br.auth_user_id = pr.auth_user_id)
+             or (br.profile_id = pr.id)
+              )
+          and extract(year from br.due_month) = extract(year from p.due_month)
+          and br.approved_at is not null
+      )
   ),
   ins as (
     insert into public.birthday_rounds (auth_user_id, profile_id, due_month, first_due_stammtisch_id)
