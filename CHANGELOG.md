@@ -12,6 +12,54 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.9] - 2026-08-15
+
+**Geänderte Dateien**
+- `app/(tabs)/stammtisch/[id].tsx`
+- `supabase/migrations/2026-08-15_geburtstagsrunden_monat.sql` (neu)
+
+Zweite von drei Etappen aus der Prüfung der Runden-Regeln. Diese Etappe betrifft
+den Kern: den Fälligkeitsmonat einer Geburtstagsrunde.
+
+> **Wichtig:** Die App-Änderungen wirken sofort. Die mitgelieferte
+> Datenbank-Datei muss **von Hand** im Supabase SQL-Editor ausgeführt werden –
+> sie ist in drei Teile gegliedert (erst anschauen, dann Funktion, dann Daten)
+> und in der Datei selbst Schritt für Schritt erklärt.
+
+### Behoben
+- **Runde konnte doppelt gebucht werden** – Die Prüfung „schon gegeben?" verglich
+  an einer Stelle den in der Datenbank gespeicherten Monat, an anderer Stelle den
+  Geburtsmonat. Weil beide Werte auseinanderlagen, galt eine bereits gegebene
+  Runde weiterhin als offen. Es gibt jetzt **eine** gemeinsame Berechnung, und
+  eine gegebene Runde wird zur Sicherheit unter beiden Monatsangaben vermerkt.
+- **Löschen konnte die falsche Runde treffen** – In der Moderation wurde aus einem
+  Hilfsfeld erraten, ob es sich um eine Geburtstags- oder eine Edle-Spender-Runde
+  handelt. Dieses Feld kann aber auch bei einer Geburtstagsrunde leer sein (z. B.
+  wenn der zugehörige Stammtisch gelöscht wurde). Im ungünstigsten Fall wurde
+  dadurch eine fremde Runde aus der anderen Tabelle gelöscht. Die Rundenart wird
+  jetzt beim Laden eindeutig festgehalten.
+- **Dieselbe Person stand doppelt in der Liste** – Noch nicht bestätigte Runden
+  wurden nicht auf Doppeleinträge geprüft. Stammen zwei Zeilen aus alter und
+  neuer Monatsrechnung, wird jetzt nur noch eine angezeigt – bevorzugt die, die
+  bereits gegeben wurde.
+- **Falsches Symbol in der Rundenliste** – 🎂 und 🥂 richten sich jetzt nach der
+  tatsächlichen Herkunft des Eintrags.
+
+### Geändert
+- **Runde wird erst am Geburtstag selbst fällig** – Bei einem Stammtisch vor dem
+  Geburtstag steht jetzt „Noch nicht fällig" statt eines aktiven Knopfes. Der
+  29. Februar zählt in Jahren ohne Schalttag als 28. Februar.
+- **Datenbank rechnet mit dem Geburtsmonat** – Die Funktion `seed_birthday_rounds`
+  trug die Runde bisher in den Monat **nach** dem Geburtstag ein, die App
+  rechnete mit dem Geburtsmonat. Beide sagen jetzt dasselbe.
+- **Stichtag vereinheitlicht** – In der Datenbank stand der 01.10.2025, in der App
+  der 01.09.2025. Es gilt einheitlich **September 2025**.
+
+### Bekannt, noch offen
+- Der Jahreswechsel ist weiterhin nicht korrekt abgedeckt (folgt in Etappe 3).
+
+---
+
 ## [0.4.8] - 2026-08-15
 
 **Geänderte Dateien**
@@ -74,10 +122,10 @@ Die schwerwiegendsten Punkte des Berichts betreffen die Datenbank und folgen in
 Etappe 2 und 3:
 - Die Datenbank berechnet den Fälligkeitsmonat einer Geburtstagsrunde einen
   Monat später als die App. Dadurch können doppelte Einträge und doppelt aktive
-  Knöpfe entstehen.
+  Knöpfe entstehen. *(erledigt in 0.4.9)*
 - Der Jahreswechsel ist noch nicht korrekt abgedeckt.
 - Die Rundenart wird intern noch über eine Fremd-Kennung abgeleitet, was in
-  Einzelfällen zu einem falschen Symbol führen kann.
+  Einzelfällen zu einem falschen Symbol führen kann. *(erledigt in 0.4.9)*
 
 ---
 

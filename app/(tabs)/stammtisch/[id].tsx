@@ -105,8 +105,15 @@ export default function StammtischEditScreen() {
   const [roundsErr, setRoundsErr] = useState<string | null>(null)
 
   // Gegebene Runden (dieser Stammtisch)
+  // `kind` sagt eindeutig, aus welcher Tabelle die Zeile stammt. Frueher wurde
+  // das aus `first_due_stammtisch_id` abgeleitet – das ist unzuverlaessig, weil
+  // dieses Feld bei einer Geburtstagsrunde leer sein kann (u.a. wenn der
+  // zugehoerige Stammtisch geloescht wurde). Dann wurde eine Geburtstagsrunde
+  // faelschlich als Spender-Runde behandelt und beim Loeschen die falsche
+  // Tabelle angesprochen.
   type Donor = {
     id: number
+    kind: 'birthday' | 'spender'
     auth_user_id: string | null
     profile_id: number | null
     due_month: string | null
@@ -305,7 +312,23 @@ export default function StammtischEditScreen() {
         .filter(r => !r.approved_at)
         .filter(r => !approvedKeys.has(`${idKeyFor(r)}:${monthKeyFor(r)}`))
 
-      setDueRounds(unapprovedFiltered)
+      // Auch unter den noch nicht bestaetigten Runden kann dieselbe Person im
+      // selben Monat mehrfach stehen: die Datenbank hat frueher den Folgemonat
+      // des Geburtstags eingetragen, heute den Geburtsmonat. Beide Zeilen
+      // gehoeren zur selben Runde. Wir zeigen nur eine davon – bevorzugt die,
+      // die bereits gegeben wurde, damit der Stand nicht verloren geht.
+      const seen = new Map<string, BR>()
+      for (const r of unapprovedFiltered) {
+        const key = `${idKeyFor(r)}:${monthKeyFor(r)}`
+        const prev = seen.get(key)
+        if (!prev) { seen.set(key, r); continue }
+        if (!prev.settled_at && r.settled_at) seen.set(key, r)
+      }
+      const unapprovedUnique = unapprovedFiltered.filter(r =>
+        seen.get(`${idKeyFor(r)}:${monthKeyFor(r)}`) === r
+      )
+
+      setDueRounds(unapprovedUnique)
       setApprovedBirthdayRounds(rows.filter(r => !!r.approved_at))
       // ---- Ende Duplikat-Filter ----
     } catch (e: any) {
@@ -338,8 +361,9 @@ export default function StammtischEditScreen() {
 
       if (sErr) throw sErr
 
-      const bMapped = (bData ?? []).map(d => ({
+      const bMapped: Donor[] = (bData ?? []).map(d => ({
         id: d.id,
+        kind: 'birthday' as const,
         auth_user_id: (d.auth_user_id ?? null) as string | null,
         profile_id: (d.profile_id ?? null) as number | null,
         due_month: (d.due_month ?? null) as string | null,
@@ -348,14 +372,14 @@ export default function StammtischEditScreen() {
         approved_at: d.approved_at as string | null,
       }))
 
-      const sMapped = (sData ?? []).map(d => ({
+      const sMapped: Donor[] = (sData ?? []).map(d => ({
         id: d.id,
+        kind: 'spender' as const,
         auth_user_id: (d.auth_user_id ?? null) as string | null,
         profile_id: (d.profile_id ?? null) as number | null,
         due_month: null,
-        first_due_stammtisch_id: null, // Kennzeichnung für Spender-Runde
-        settled_stammtisch_id: d.stammtisch_id,
-        settled_at: d.created_at, // create_at ist hier settled_at
+        first_due_stammtisch_id: null,
+        settled_at: d.created_at as string | null, // created_at ist hier settled_at
         approved_at: d.approved_at as string | null,
       }))
 
@@ -391,8 +415,9 @@ export default function StammtischEditScreen() {
         .eq('stammtisch_id', idNum)
       if (sErr) throw sErr
 
-      const bMapped = (bData ?? []).map(d => ({
+      const bMapped: Donor[] = (bData ?? []).map(d => ({
         id: d.id,
+        kind: 'birthday' as const,
         auth_user_id: (d.auth_user_id ?? null) as string | null,
         profile_id: (d.profile_id ?? null) as number | null,
         due_month: (d.due_month ?? null) as string | null,
@@ -401,13 +426,14 @@ export default function StammtischEditScreen() {
         approved_at: d.approved_at as string | null,
       }))
 
-      const sMapped = (sData ?? []).map(d => ({
+      const sMapped: Donor[] = (sData ?? []).map(d => ({
         id: d.id,
+        kind: 'spender' as const,
         auth_user_id: (d.auth_user_id ?? null) as string | null,
         profile_id: (d.profile_id ?? null) as number | null,
         due_month: null,
         first_due_stammtisch_id: null,
-        settled_at: d.created_at,
+        settled_at: d.created_at as string | null,
         approved_at: d.approved_at as string | null,
       }))
 
@@ -823,18 +849,34 @@ export default function StammtischEditScreen() {
   const currentMonth = date ? date.slice(5,7) : ''
   const isBeforeEarliestDue = currentMonthKey !== '' && currentMonthKey < EARLIEST_DUE_MONTH
 
-  // Effektiver Fälligkeits-Monat (YYYY-MM) aus Profilgeburtstag, fallback: r.due_month
-  const effectiveDueMonth = useCallback((r: BR): string => {
-    const year = date ? date.slice(0,4) : String(new Date().getFullYear())
-    const prof =
-      (r.profile_id != null ? profiles.find(p => p.id === r.profile_id) : undefined) ||
-      (r.auth_user_id ? profiles.find(p => p.auth_user_id === r.auth_user_id) : undefined)
-    if (prof?.birthday) {
-      const mm = prof.birthday.slice(5,7)
-      return `${year}-${mm}`
-    }
-    return r.due_month.slice(0,7)
-  }, [profiles, date])
+  // Effektiver Fälligkeits-Monat (YYYY-MM) einer Person: immer der Geburtsmonat.
+  // Nur wenn kein Geburtstag hinterlegt ist, gilt der in der Datenbank
+  // gespeicherte Monat als Rückfallwert.
+  //
+  // WICHTIG: Diese eine Funktion muss ueberall benutzt werden. Die Datenbank
+  // speichert den Monat teilweise nach einer aelteren Rechnung (Geburtsmonat + 1).
+  // Wer an einer Stelle den rohen Datenbankwert vergleicht und an anderer Stelle
+  // den Geburtsmonat, bekommt zwei verschiedene Ergebnisse fuer dieselbe Runde –
+  // genau daran lag es, dass eine bereits gegebene Runde weiter als offen galt.
+  const monthForPerson = useCallback(
+    (authUserId: string | null, profileId: number | null, fallbackDueMonth: string | null): string => {
+      const year = date ? date.slice(0, 4) : String(new Date().getFullYear())
+      const prof =
+        (profileId != null ? profiles.find(p => p.id === profileId) : undefined) ||
+        (authUserId ? profiles.find(p => p.auth_user_id === authUserId) : undefined)
+      if (prof?.birthday) {
+        const mm = (prof.birthday as string).slice(5, 7)
+        return `${year}-${mm}`
+      }
+      return (fallbackDueMonth ?? '').slice(0, 7)
+    },
+    [profiles, date]
+  )
+
+  const effectiveDueMonth = useCallback(
+    (r: BR): string => monthForPerson(r.auth_user_id, r.profile_id, r.due_month),
+    [monthForPerson]
+  )
 
   // Geburtstagsliste für den Monat
   const currentMonthBirthdays = useMemo(() => {
@@ -846,6 +888,22 @@ export default function StammtischEditScreen() {
         (a.first_name || '').localeCompare((b.first_name || ''), 'de', { sensitivity: 'base' })
       )
   }, [profiles, date, currentMonth, isBeforeEarliestDue])
+
+  // Regel R-5a: Eine Geburtstagsrunde wird erst am Geburtstag selbst oder
+  // danach faellig. Beispiel: Geburtstag am 20. Maerz, Stammtisch am 5. Maerz
+  // -> noch nicht faellig, es gibt keinen 🎂-Knopf.
+  // Sonderfall 29. Februar: in Jahren ohne Schalttag gilt der 28. Februar.
+  const isBirthdayDue = useCallback((birthday: string | null | undefined): boolean => {
+    if (!date || !birthday) return true
+    const year = Number(date.slice(0, 4))
+    const mm = birthday.slice(5, 7)
+    let dd = birthday.slice(8, 10)
+    if (mm === '02' && dd === '29') {
+      const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+      if (!isLeapYear) dd = '28'
+    }
+    return date >= `${year}-${mm}-${dd}`
+  }, [date])
 
   // offene (unsettled) Runden im aktuellen Monat – verknüpft (für Open-Map)
   const openCurrentMap = useMemo(() => {
@@ -882,57 +940,67 @@ export default function StammtischEditScreen() {
 
   // aus allen Donors (settled) Maps für "gegeben" und "pending" machen
   const donorBirthdayRounds = useMemo(
-    () => donors.filter(d => d.first_due_stammtisch_id != null),
+    () => donors.filter(d => d.kind === 'birthday'),
     [donors]
   )
   const donorsPending = useMemo(
     () => donorBirthdayRounds.filter(d => !d.approved_at),
     [donorBirthdayRounds]
   )
+  // Eine bereits gegebene Runde wird unter beiden Monatsangaben vermerkt:
+  // unter dem Geburtsmonat (so rechnet die App) und zusaetzlich unter dem in
+  // der Datenbank gespeicherten Monat (aeltere Zeilen rechnen Geburtsmonat + 1).
+  // Dadurch wird eine Runde in jedem Fall als "gegeben" erkannt und kann nicht
+  // versehentlich ein zweites Mal gebucht werden.
+  const donorMonths = useCallback((d: Donor): string[] => {
+    const months: string[] = []
+    const eff = monthForPerson(d.auth_user_id, d.profile_id, d.due_month)
+    if (eff) months.push(eff)
+    const raw = (d.due_month ?? '').slice(0, 7)
+    if (raw && raw !== eff) months.push(raw)
+    return months
+  }, [monthForPerson])
+
   const givenLinkedByMonth = useMemo(() => {
     const map = new Map<string, Set<string>>() // auth_user_id -> months
     for (const d of donorBirthdayRounds) {
-      if (d.auth_user_id && d.due_month) {
-        const m = d.due_month.slice(0,7)
+      if (d.auth_user_id) {
         if (!map.has(d.auth_user_id)) map.set(d.auth_user_id, new Set())
-        map.get(d.auth_user_id)!.add(m)
+        for (const m of donorMonths(d)) map.get(d.auth_user_id)!.add(m)
       }
     }
     return map
-  }, [donorBirthdayRounds])
+  }, [donorBirthdayRounds, donorMonths])
   const givenUnlinkedByMonth = useMemo(() => {
     const map = new Map<number, Set<string>>() // profile_id -> months
     for (const d of donorBirthdayRounds) {
-      if (!d.auth_user_id && d.profile_id && d.due_month) {
-        const m = d.due_month.slice(0,7)
+      if (!d.auth_user_id && d.profile_id) {
         if (!map.has(d.profile_id)) map.set(d.profile_id, new Set())
-        map.get(d.profile_id)!.add(m)
+        for (const m of donorMonths(d)) map.get(d.profile_id)!.add(m)
       }
     }
     return map
-  }, [donorBirthdayRounds])
+  }, [donorBirthdayRounds, donorMonths])
   const pendingLinkedByMonth = useMemo(() => {
     const map = new Map<string, Set<string>>() // auth_user_id -> months
     for (const d of donorsPending) {
-      if (d.auth_user_id && d.due_month) {
-        const m = d.due_month.slice(0,7)
+      if (d.auth_user_id) {
         if (!map.has(d.auth_user_id)) map.set(d.auth_user_id, new Set())
-        map.get(d.auth_user_id)!.add(m)
+        for (const m of donorMonths(d)) map.get(d.auth_user_id)!.add(m)
       }
     }
     return map
-  }, [donorsPending])
+  }, [donorsPending, donorMonths])
   const pendingUnlinkedMonthsByProfile = useMemo(() => {
     const map = new Map<number, Set<string>>() // profile_id -> months
     for (const d of donorsPending) {
-      if (!d.auth_user_id && d.profile_id && d.due_month) {
-        const m = d.due_month.slice(0,7)
+      if (!d.auth_user_id && d.profile_id) {
         if (!map.has(d.profile_id)) map.set(d.profile_id, new Set())
-        map.get(d.profile_id)!.add(m)
+        for (const m of donorMonths(d)) map.get(d.profile_id)!.add(m)
       }
     }
     return map
-  }, [donorsPending])
+  }, [donorsPending, donorMonths])
 
   // Sichtbarkeit Donors-Box (overdueRounds wird weiter unten definiert, nach checkGiven)
   const showDonorsBox = !loadingDonors && donors.length > 0
@@ -1167,11 +1235,14 @@ export default function StammtischEditScreen() {
 
                         const isPending = pendingFromDonors || pendingFromRound
 
+                        // R-5a: vor dem Geburtstag ist die Runde noch nicht faellig.
+                        const birthdayDue = isBirthdayDue(p.birthday)
+
                         // Ausserhalb des Zeitfensters ist der Knopf jetzt auch sichtbar
                         // gesperrt (vorher sah er aktiv aus und meldete sich erst
                         // nach dem Antippen).
                         const canClick =
-                          !hasGiven && (
+                          !hasGiven && birthdayDue && (
                             isAdmin
                               ? true
                               : (p.auth_user_id ? (attending && isWithinGivingWindow) : false)
@@ -1182,13 +1253,15 @@ export default function StammtischEditScreen() {
                             ? givenCurrentOrOverdue(p.auth_user_id!, open?.id)
                             : givenForUnlinkedProfile(p.id)
 
-                        const statusNode = renderRoundStatus({
-                          hasGiven,
-                          isPending,
-                          canPress: canClick,
-                          showButton: isAdmin || p.auth_user_id === myAuthUserId,
-                          onPress,
-                        })
+                        const statusNode = (!hasGiven && !birthdayDue)
+                          ? <Text style={{ ...type.caption, color: '#888' }}>Noch nicht fällig</Text>
+                          : renderRoundStatus({
+                              hasGiven,
+                              isPending,
+                              canPress: canClick,
+                              showButton: isAdmin || p.auth_user_id === myAuthUserId,
+                              onPress,
+                            })
 
                         return (
                           <View
@@ -1332,10 +1405,10 @@ export default function StammtischEditScreen() {
                           const prof = findProfileBy(d.auth_user_id, d.profile_id)
                           const name = prof ? fullName(prof) : (d.auth_user_id ?? 'Unverknüpft')
                           const avatar = avatarUrlFor(prof || null)
-                          const isBirthday = d.first_due_stammtisch_id != null
+                          const isBirthday = d.kind === 'birthday'
                           return (
                             <View
-                              key={`donor-${d.id}`}
+                              key={`donor-${d.kind}-${d.id}`}
                               style={{
                                 flexDirection: 'row', alignItems: 'center', gap: 10,
                                 borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 8,
@@ -1362,10 +1435,10 @@ export default function StammtischEditScreen() {
                           const prof = findProfileBy(d.auth_user_id, d.profile_id)
                           const name = prof ? fullName(prof) : (d.auth_user_id ?? 'Unverknüpft')
                           const avatar = avatarUrlFor(prof || null)
-                          const isBirthday = d.first_due_stammtisch_id != null
+                          const isBirthday = d.kind === 'birthday'
                           return (
                             <View
-                              key={`donor-pending-${d.id}`}
+                              key={`donor-pending-${d.kind}-${d.id}`}
                               style={{
                                 flexDirection: 'row', alignItems: 'center', gap: 10,
                                 borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 8,
@@ -1618,7 +1691,7 @@ export default function StammtischEditScreen() {
                       const isApproved = !!r.approved_at
                       return (
                         <View
-                          key={`mod-${r.id}`}
+                          key={`mod-${r.kind}-${r.id}`}
                           style={{
                             paddingVertical: 8,
                             borderBottomWidth: 1,
@@ -1640,7 +1713,11 @@ export default function StammtischEditScreen() {
                               <Pressable
                                 onPress={async () => {
                                   try {
-                                    if (r.first_due_stammtisch_id == null) {
+                                    // Welche Tabelle gemeint ist, steht fest in `kind`.
+                                    // Frueher wurde das aus first_due_stammtisch_id
+                                    // geraten – dieses Feld kann aber auch bei einer
+                                    // Geburtstagsrunde leer sein.
+                                    if (r.kind === 'spender') {
                                       // Edle Spender Runde bestätigen
                                       const { data: u } = await supabase.auth.getUser()
                                       const { error } = await supabase.from('spender_rounds')
@@ -1681,7 +1758,10 @@ export default function StammtischEditScreen() {
                                   {
                                     text: 'Löschen', style: 'destructive', onPress: async () => {
                                       try {
-                                        if (r.first_due_stammtisch_id == null) {
+                                        // Siehe oben: Tabelle nur ueber `kind` waehlen.
+                                        // Ein Irrtum wuerde hier eine fremde Runde
+                                        // aus der anderen Tabelle loeschen.
+                                        if (r.kind === 'spender') {
                                           // Edle Spender Runde löschen
                                           const { error } = await supabase.from('spender_rounds').delete().eq('id', r.id)
                                           if (error) throw error
