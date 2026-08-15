@@ -29,6 +29,18 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.6.1] - 2026-03-17
+
+**Geänderte Dateien**
+- `app/(tabs)/stammtisch/[id].tsx`
+
+### Behoben
+- **Weißer Bildschirm beim Öffnen eines Stammtischs** – `overdueRounds` griff auf `checkGiven` zu, bevor diese Funktion definiert war. Reihenfolge korrigiert (`5f1e965`).
+- **Folgefehler derselben Art** – `showBirthdayBox` stand vor `overdueRounds` und lief in denselben Initialisierungsfehler. Ebenfalls nach unten verschoben (`865a620`).
+- **Bereits bestätigte Runden wurden weiter als „überfällig" angezeigt** – Die Prüfung berücksichtigte nur offene Runden, nicht die bereits bestätigten. `approvedBirthdayRounds` wird jetzt mit ausgewertet (`1ca49de`).
+
+---
+
 ## [0.4.6] - 2026-03-17
 
 **Geänderte Dateien**

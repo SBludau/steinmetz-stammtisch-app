@@ -263,6 +263,20 @@ curl -s "$SUPA_URL/rest/v1/profiles?select=*" \
 | Redirect App | `stammtisch://auth-callback` |
 | Redirect Dev | `https://auth.expo.io/@sbludau/steinmetz-stammtisch-app` |
 
+### Ablauf nach dem Login
+
+`app/login.tsx` löst den Anmelde-Code bereits selbst ein. `app/auth-callback.tsx` ist die
+Absicherung dahinter: Es prüft **immer** per `getSession()`, ob eine Anmeldung vorliegt –
+auch wenn die Rückkehr-Adresse aus dem Browser fehlt oder der Code (einmalig gültig)
+schon verbraucht war. Danach geht es zu `/` (Profil vorhanden) oder `/claim-profile`.
+Kommt innerhalb von **10 Sekunden** keine Anmeldung zustande, springt der Bildschirm
+zurück zum Login, statt endlos auf „Verbinde…" stehen zu bleiben.
+
+> **Bekannte Einschränkung:** `src/lib/supabase.ts` erzeugt den Client ohne
+> Speicher-Adapter (`@react-native-async-storage/async-storage` ist nicht installiert).
+> Auf Android liegt die Anmeldung deshalb nur im Arbeitsspeicher – nach jedem
+> App-Neustart muss man sich neu anmelden.
+
 ### OTA-Update Konfiguration (`app.json`)
 
 ```json
