@@ -12,6 +12,23 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.7] - 2026-08-15
+
+**Geänderte Dateien**
+- `app/auth-callback.tsx`
+
+### Behoben
+- **App blieb nach dem Login endlos auf „Verbinde…" stehen** – Der Zwischenbildschirm brach ab, wenn die Rückkehr-Adresse aus dem Browser nicht ankam (`if (!url) return`). Das passiert regelmäßig, wenn die App beim Zurückkommen aus dem Google-Browser bereits lief. Zusätzlich löst `app/login.tsx` den Anmelde-Code bereits selbst ein; der zweite Einlöse-Versuch im Callback schlug deshalb fehl, weil so ein Code nur einmal gültig ist. In beiden Fällen wurde nie weitergeleitet und es gab keine Notbremse.
+  - Fehlende Rückkehr-Adresse führt nicht mehr zum Abbruch.
+  - Es wird jetzt **immer** geprüft, ob bereits eine Anmeldung vorliegt, auch wenn nichts eingelöst werden konnte.
+  - Neue Notbremse: nach 10 Sekunden ohne Ergebnis geht es zurück zum Login statt endlos zu hängen.
+  - Doppelte Navigation wird über ein `doneRef` verhindert.
+
+### Bekannt, noch offen
+- Der Supabase-Client in `src/lib/supabase.ts` hat keinen Speicher-Adapter (`@react-native-async-storage/async-storage` ist nicht installiert). Auf Android liegt die Anmeldung deshalb nur im Arbeitsspeicher – nach jedem App-Neustart muss man sich neu anmelden. Behebung erfordert eine neue native Bibliothek und damit einen neuen EAS-Build.
+
+---
+
 ## [0.4.6] - 2026-03-17
 
 **Geänderte Dateien**
