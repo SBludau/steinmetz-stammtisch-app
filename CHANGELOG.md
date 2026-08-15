@@ -12,6 +12,32 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.13] - 2026-08-15
+
+**Geänderte Dateien**
+- `supabase/migrations/20260815202340_fix_birthday_round_506.sql` (neu)
+
+Reine Datenkorrektur in der Live-Datenbank, kein Code-Eingriff. Die App
+musste dafür nicht neu gebaut werden.
+
+### Behoben
+- **Doppelter Eintrag für eine Dezember-Runde 2025** – Für ein Mitglied mit
+  Geburtstag im Dezember standen zwei Zeilen in `birthday_rounds`, die
+  dieselbe Runde meinten: eine offene (automatisch erzeugt, nach der alten
+  Rechnung „Monat nach dem Geburtstag") und eine bezahlte, die versehentlich
+  auf Dezember **2026** stand. Dadurch galt die Runde gleichzeitig als offen
+  und wäre im Dezember 2026 fälschlich als schon bezahlt angesehen worden.
+  Der bezahlte Eintrag steht jetzt auf dem richtigen Monat, der doppelte
+  wurde entfernt. Die Migrationsdatei enthält die Analyse und einen fertigen
+  Rückbau-Block.
+
+### Hinweis
+- Die noch offene Migration `2026-08-15_geburtstagsrunden_monat.sql` hätte
+  diesen Fall **nicht** mit erledigt: Ihr TEIL 2 verschiebt nur Zeilen, deren
+  Vormonat der Geburtsmonat ist. Der Fall musste von Hand korrigiert werden.
+
+---
+
 ## [0.4.12] - 2026-08-15
 
 **Geänderte Dateien**
