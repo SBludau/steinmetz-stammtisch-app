@@ -79,3 +79,45 @@ export function overdueBirthdayMonth(
   if (monat < EARLIEST_DUE_MONTH.slice(0, 7)) return null
   return monat
 }
+
+// Regel R-5a (Stichtag): Eine Geburtstagsrunde wird erst am Geburtstag selbst
+// oder danach faellig. Beispiel: Geburtstag am 13. September, Stammtisch am
+// 11. September -> an diesem Abend noch nicht faellig. Faellig wird sie dann
+// beim naechsten Stammtisch (und taucht dort unter "ueberfaellig" auf).
+//
+// GELTUNGSBEREICH: Diese Funktion beantwortet nur die Tagesfrage INNERHALB
+// eines Monats – also "Der Stammtisch ist im Geburtsmonat, aber ist der
+// Geburtstag an diesem Abend schon gewesen?". Beide Aufrufer (Startbildschirm
+// und Stammtisch-Detail) filtern vorher auf den Geburtsmonat.
+//
+// Liegt der Termin in einem ANDEREN Monat, ist die Frage hier nicht
+// entscheidbar – dafuer ist overdueBirthdayMonth() zustaendig, das auch den
+// Jahreswechsel kennt (Dezember-Geburtstag, Termin im Januar). In dem Fall
+// gibt es hier true zurueck, damit niemand faelschlich als "noch nicht
+// faellig" ausgeblendet wird.
+//
+// Sonderfall 29. Februar: in Jahren ohne Schalttag gilt der 28. Februar.
+//
+// Ohne hinterlegten Geburtstag oder ohne Termin gilt ebenfalls true – ein
+// fehlendes Datum darf niemanden dauerhaft aus der Liste kippen.
+export function isBirthdayDueOn(
+  birthday: string | null | undefined,
+  referenceDateIso: string | null | undefined
+): boolean {
+  if (!referenceDateIso || !birthday) return true
+
+  const year = Number(referenceDateIso.slice(0, 4))
+  if (!Number.isFinite(year)) return true
+
+  const mm = birthday.slice(5, 7)
+  // Anderer Monat -> ausserhalb des Geltungsbereichs, nichts ausblenden.
+  if (referenceDateIso.slice(5, 7) !== mm) return true
+
+  let dd = birthday.slice(8, 10)
+  if (mm === '02' && dd === '29') {
+    const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+    if (!isLeapYear) dd = '28'
+  }
+
+  return referenceDateIso >= `${year}-${mm}-${dd}`
+}

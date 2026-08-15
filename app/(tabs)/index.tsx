@@ -9,7 +9,7 @@ import { supabase } from '../../src/lib/supabase'
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../src/components/BottomNav'
 import { colors, radius } from '../../src/theme/colors'
 import { type } from '../../src/theme/typography'
-import { EARLIEST_DUE_MONTH, birthdayRoundMonth, overdueBirthdayMonth } from '../../src/lib/birthdayRounds'
+import { EARLIEST_DUE_MONTH, birthdayRoundMonth, isBirthdayDueOn, overdueBirthdayMonth } from '../../src/lib/birthdayRounds'
 
 // ---- Konfiguration ----
 const BUG_REPORT_URL = 'https://forms.gle/pJrbotLJWR3cv3ML8'
@@ -516,6 +516,13 @@ export default function HomeScreen() {
   }, [profile, userEmail])
 
   // Geburtstags-Runden (je Event: alle Profile, deren birthday-MONTH == event-MONTH)
+  //
+  // Regel R-5a (Stichtag): Wer im Monat des Stammtischs Geburtstag hat, ihn aber
+  // erst NACH dem Stammtisch-Termin feiert, schuldet an diesem Abend noch nichts.
+  // Beispiel: Stammtisch am 11. September, Geburtstag am 13. September – die
+  // Runde wird erst danach faellig. Solche Zeilen werden weiterhin angezeigt
+  // (man sieht ja gern, wer bald Geburtstag hat), aber als "noch nicht faellig"
+  // gekennzeichnet – genauso wie auf der Stammtisch-Detailseite.
   const birthdayRowsFor = useCallback((eventDateIso: string) => {
     const targetMonth = eventDateIso.slice(5,7) // nur MM vergleichen!
     return (profiles ?? [])
@@ -524,6 +531,7 @@ export default function HomeScreen() {
         (a.last_name || '').localeCompare((b.last_name || ''), 'de', { sensitivity: 'base' }) ||
         (a.first_name || '').localeCompare((b.first_name || ''), 'de', { sensitivity: 'base' })
       )
+      .map(p => ({ profile: p, due: isBirthdayDueOn(p.birthday, eventDateIso) }))
   }, [profiles])
 
   const avatarFor = (p: Profile): string | undefined => {
@@ -653,7 +661,7 @@ export default function HomeScreen() {
           {birthdays.length > 0 ? (
             <View style={{ marginTop: 6, gap: 4 }}>
               <Text style={{ ...type.caption, color: colors.gold }}>Geburtstags-Runden {germanMonthYear(item.date)}:</Text>
-              {birthdays.map(p => (
+              {birthdays.map(({ profile: p, due }) => (
                 <View key={p.auth_user_id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   {avatarFor(p) ? (
                     <Image
@@ -663,8 +671,9 @@ export default function HomeScreen() {
                   ) : (
                     <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: colors.border, backgroundColor: '#333' }} />
                   )}
-                  <Text style={type.body}>
+                  <Text style={due ? type.body : { ...type.body, color: '#888' }}>
                     {shortName(p)} — {germanDateShort(p.birthday!)} ({ageOnDate(p.birthday!, item.date)})
+                    {due ? '' : ' – noch nicht fällig'}
                   </Text>
                 </View>
               ))}

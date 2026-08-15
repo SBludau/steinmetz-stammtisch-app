@@ -12,6 +12,50 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.12] - 2026-08-15
+
+**Geänderte Dateien**
+- `src/lib/birthdayRounds.ts`
+- `app/(tabs)/index.tsx`
+- `app/(tabs)/stammtisch/[id].tsx`
+
+Der Stichtag (eine Geburtstagsrunde wird erst am Geburtstag selbst fällig)
+galt bisher nur auf der Stammtisch-Detailseite. Keine Datenbank-Änderung.
+
+### Behoben
+- **Startbildschirm forderte Runden vor dem Geburtstag ein** – In der Kachel
+  des nächsten Stammtischs stand unter „Geburtstags-Runden" jeder, dessen
+  Geburtstag in denselben Monat fällt – auch dann, wenn der Geburtstag erst
+  nach dem Stammtisch-Termin liegt. Beispiel: Stammtisch am 11. September,
+  Geburtstag am 13. September – an dem Abend ist noch nichts fällig. Solche
+  Einträge werden weiterhin angezeigt (man sieht ja gern, wer bald Geburtstag
+  hat), jetzt aber ausgegraut und mit dem Zusatz „noch nicht fällig", genau
+  wie auf der Stammtisch-Detailseite.
+
+### Geändert
+- Die Stichtag-Regel (R-5a) steht jetzt ebenfalls in
+  `src/lib/birthdayRounds.ts` (`isBirthdayDueOn`) und wird von beiden
+  Bildschirmen benutzt. Vorher stand sie nur in der Detailseite – dieselbe
+  Art von Doppelung, die schon bei den Fälligkeitsmonaten zu Fehlern geführt
+  hat. Der Geltungsbereich der Funktion ist im Code dokumentiert: Sie
+  beantwortet nur die Tagesfrage innerhalb eines Monats; der Jahreswechsel
+  bleibt Sache von `overdueBirthdayMonth`.
+
+### Geprüft
+- Alle Bildschirme durchgesehen, die Runden anzeigen oder zählen
+  (Startseite, Stammtisch-Detail, Statistik, Hall of Fame, Mitgliedskarte,
+  Profil, Admin-Profil). Nur die beiden erstgenannten treffen
+  Fälligkeits-Entscheidungen; die übrigen zählen ausschließlich bestätigte
+  Runden und brauchen den Stichtag nicht. Die Zählung wird überall auf das
+  Profil vereinheitlicht, verknüpfte Mitglieder werden nirgends doppelt
+  gezählt.
+- 41 Regeltests (21 neue zum Stichtag: Monatsränder, 29. Februar mit und ohne
+  Schalttag, fehlende Datumsangaben, Jahreswechsel), alle bestanden.
+- `npx tsc --noEmit`: 196 Meldungen – unverändert zum Stand davor.
+- `npx expo export --platform android` erfolgreich.
+
+---
+
 ## [0.4.11] - 2026-08-15
 
 **Geänderte Dateien**

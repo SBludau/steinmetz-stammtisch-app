@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Calendar } from 'react-native-calendars'
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../../src/components/BottomNav'
 import { supabase } from '../../../src/lib/supabase'
-import { EARLIEST_DUE_MONTH, birthdayRoundMonth, overdueBirthdayMonth } from '../../../src/lib/birthdayRounds'
+import { EARLIEST_DUE_MONTH, birthdayRoundMonth, isBirthdayDueOn, overdueBirthdayMonth } from '../../../src/lib/birthdayRounds'
 import { colors, radius } from '../../../src/theme/colors'
 import { type } from '../../../src/theme/typography'
 
@@ -886,18 +886,13 @@ export default function StammtischEditScreen() {
   // Regel R-5a: Eine Geburtstagsrunde wird erst am Geburtstag selbst oder
   // danach faellig. Beispiel: Geburtstag am 20. Maerz, Stammtisch am 5. Maerz
   // -> noch nicht faellig, es gibt keinen 🎂-Knopf.
-  // Sonderfall 29. Februar: in Jahren ohne Schalttag gilt der 28. Februar.
-  const isBirthdayDue = useCallback((birthday: string | null | undefined): boolean => {
-    if (!date || !birthday) return true
-    const year = Number(date.slice(0, 4))
-    const mm = birthday.slice(5, 7)
-    let dd = birthday.slice(8, 10)
-    if (mm === '02' && dd === '29') {
-      const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
-      if (!isLeapYear) dd = '28'
-    }
-    return date >= `${year}-${mm}-${dd}`
-  }, [date])
+  //
+  // Die Rechnung steht in src/lib/birthdayRounds.ts – dieselbe nutzt der
+  // Startbildschirm fuer die Kachel "Geburtstags-Runden".
+  const isBirthdayDue = useCallback(
+    (birthday: string | null | undefined): boolean => isBirthdayDueOn(birthday, date),
+    [date]
+  )
 
   // offene (unsettled) Runden im aktuellen Monat – verknüpft (für Open-Map)
   const openCurrentMap = useMemo(() => {
