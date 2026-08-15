@@ -238,6 +238,16 @@ steinmetz-stammtisch-app/
 
 - **`admin-delete-user`** – Löscht User vollständig aus Auth, DB und Storage. Nur mit Admin-Token aufrufbar. Pfad: `supabase/functions/admin-delete-user/index.ts`
 
+### Datensicherung
+
+Im kostenlosen Supabase-Tarif gibt es **keine** Sicherungen, die man selbst zurückspielen könnte. Deshalb von Hand sichern:
+
+```bash
+npm run backup
+```
+
+Schreibt alle acht Tabellen in `supabase-backup-<Zeitstempel>.json` im Projektordner. Die Datei ist in `.gitignore` ausgeschlossen (echte Nutzerdaten – nie auf GitHub!). Am besten regelmäßig eine Kopie auf eine externe Platte oder in die eigene Cloud legen, und immer **vor** einer Datenbank-Migration einmal laufen lassen.
+
 ### Live-Datenbankzugriff (für KI-Entwicklung mit Claude)
 
 ```bash
@@ -310,7 +320,18 @@ Push auf `main` → Vercel baut automatisch → live auf [stammtisch-app.vercel.
 
 ### Supabase Keep-Alive
 
-GitHub Actions Workflow (`.github/workflows/supabase-ping.yml`) pingt die Datenbank alle 3 Tage, damit das kostenlose Supabase-Projekt nicht einschläft.
+GitHub Actions Workflow (`.github/workflows/supabase-ping.yml`) pingt die Datenbank **alle 2 Tage**, damit das kostenlose Supabase-Projekt nicht nach 7 Tagen Ruhe einschläft.
+
+> ⚠️ **Stolperfalle:** GitHub schaltet zeitgesteuerte Workflows automatisch ab, wenn **60 Tage** lang nichts ins Repository gepusht wurde (Status `disabled_inactivity`). Genau das ist am 19.05.2026 passiert – der Ping hörte still auf. Der Workflow setzt sich deshalb selbst einen leeren Commit, wenn 45 Tage lang nichts passiert ist.
+>
+> Prüfen, ob er noch läuft:
+> ```bash
+> gh workflow list --all
+> ```
+> Steht dort `disabled_inactivity`, wieder anschalten mit:
+> ```bash
+> gh workflow enable "Supabase Keep-Alive Ping"
+> ```
 
 ---
 

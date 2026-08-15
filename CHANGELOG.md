@@ -12,6 +12,71 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.11] - 2026-08-15
+
+**Geänderte Dateien**
+- `src/lib/birthdayRounds.ts` (neu)
+- `app/(tabs)/index.tsx`
+- `app/(tabs)/stammtisch/[id].tsx`
+- `app/(tabs)/stats.tsx`
+- `scripts/backup-supabase.js` (neu)
+- `package.json`
+- `.github/workflows/supabase-ping.yml`
+
+Nacharbeit zu den drei Runden-Etappen: Der Startbildschirm rechnete die
+überfälligen Geburtstagsrunden immer noch nach der alten, eigenen Formel. Dazu
+zwei Wartungsthemen außerhalb der App (Wach-Ping und Datensicherung). Keine
+Datenbank-Änderung.
+
+### Behoben
+- **Startbildschirm zeigte überfällige Geburtstagsrunden falsch an** – Die
+  Kachel „Überfällige Runden" auf der Startseite rechnete nach einer eigenen,
+  veralteten Formel: Sie sah nur das laufende Jahr an, verglich Personen statt
+  Monaten und ignorierte den Stichtag. Folgen: Dezember-Geburtstage
+  verschwanden ab Januar aus der Liste, eine einmal gegebene Runde ließ die
+  Person für immer als erledigt gelten, und der angezeigte Monat wurde ein
+  zweites Mal umgerechnet und konnte danebenliegen. Der Startbildschirm nutzt
+  jetzt exakt dieselbe Rechnung wie die Stammtisch-Ansicht.
+- **Runden von nachträglich verknüpften Profilen wurden doppelt gezählt** – Wer
+  seine Runde vor der Verknüpfung mit dem Google-Konto gegeben hatte, tauchte
+  danach wieder als überfällig auf, weil der alte Eintrag noch am Profil und
+  der neue am Konto hing. Beide Schreibweisen werden jetzt auf dieselbe Person
+  zurückgeführt.
+- **„1 Runden" in der Statistik** – Bei genau einem Eintrag wird jetzt die
+  Einzahl angezeigt („1 Runde", „1 Teilnahme").
+
+### Geändert
+- Die Regeln für Geburtstagsrunden stehen jetzt in einer eigenen Datei
+  (`src/lib/birthdayRounds.ts`) und werden von Startbildschirm und
+  Stammtisch-Ansicht gemeinsam genutzt. Genau das Auseinanderlaufen dieser
+  beiden Kopien war die Ursache der Fehler oben.
+
+### Hinzugefügt
+- **Datensicherung per Knopfdruck** – `npm run backup` schreibt alle Tabellen in
+  eine JSON-Datei im Projektordner. Im kostenlosen Supabase-Tarif gibt es keine
+  eigenen Sicherungen, aus denen man zurückspielen könnte. Die Dateien sind von
+  GitHub ausgeschlossen, weil sie echte Daten enthalten.
+
+### Wartung
+- **Wach-Ping wieder aktiviert** – Der Ping, der Supabase am Schlafen hindert,
+  lief bis 19.05.2026 sauber und wurde dann von GitHub automatisch abgeschaltet:
+  GitHub deaktiviert Zeitpläne, wenn 60 Tage lang nichts ins Repository
+  gepusht wurde. Der Workflow ist wieder aktiv, läuft jetzt alle 2 Tage statt
+  alle 3 und hält sich zusätzlich selbst am Leben, indem er nach 45 ruhigen
+  Tagen einen leeren Commit setzt.
+
+### Geprüft
+- `npx tsc --noEmit`: 196 Meldungen, unverändert gegenüber 0.4.10.
+- `npx expo export --platform android`: erfolgreich durchgelaufen.
+- 20 Rechenbeispiele der neuen gemeinsamen Regel-Datei durchgetestet
+  (Jahreswechsel, laufender Monat, Stichtag, alte Datenbank-Schreibweise) –
+  alle bestanden.
+- Gegenprobe direkt auf der Datenbank: Die Liste, die die App jetzt berechnet,
+  stimmt mit der Abfrage auf den echten Daten überein.
+- `npm run backup` einmal ausgeführt: alle acht Tabellen vollständig gesichert.
+
+---
+
 ## [0.4.10] - 2026-08-15
 
 **Geänderte Dateien**

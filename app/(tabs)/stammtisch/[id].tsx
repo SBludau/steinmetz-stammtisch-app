@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Calendar } from 'react-native-calendars'
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../../src/components/BottomNav'
 import { supabase } from '../../../src/lib/supabase'
+import { EARLIEST_DUE_MONTH, birthdayRoundMonth, overdueBirthdayMonth } from '../../../src/lib/birthdayRounds'
 import { colors, radius } from '../../../src/theme/colors'
 import { type } from '../../../src/theme/typography'
 
@@ -64,47 +65,8 @@ const degPrefix = (d?: Degree) => (d === 'dr' ? 'Dr. ' : d === 'prof' ? 'Prof. '
 const AVATAR_BASE_URL = 'https://bcbqnkycjroiskwqcftc.supabase.co/storage/v1/object/public/avatars'
 const CONFIRMED_COLOR = '#4CAF50'
 const PENDING_COLOR = '#9E9E9E'
-const EARLIEST_DUE_MONTH = '2025-09-01'
-
-// Fälligkeitsmonat (YYYY-MM) einer Geburtstagsrunde.
-//
-// Maßgeblich ist der Geburtsmonat. Der in der Datenbank gespeicherte Monat
-// liefert nur das Jahr – und den ganzen Wert, wenn im Profil kein Geburtstag
-// hinterlegt ist.
-//
-// Zwei Fälle sind zu unterscheiden, weil die Datenbank früher anders gerechnet
-// hat: entweder steht dort bereits der Geburtsmonat, oder der Monat danach.
-// Steht dort Januar und der Geburtstag ist im Dezember, gehört die Runde in den
-// Dezember des VORJAHRES – sonst verschwindet sie beim Stammtisch im Januar aus
-// der Liste der überfälligen Runden (Regel R-17).
-//
-// Als Modul-Funktion (außerhalb der Komponente), damit sie überall im Bildschirm
-// benutzt werden kann, ohne die Reihenfolge der React-Hooks zu verändern.
-function birthdayRoundMonth(
-  birthday: string | null | undefined,
-  dbDueMonth: string | null | undefined,
-  fallbackYear: string
-): string {
-  const raw = (dbDueMonth ?? '').slice(0, 7)
-  if (!birthday) return raw
-
-  const bm = birthday.slice(5, 7)
-  if (!raw) return `${fallbackYear}-${bm}`
-
-  const dbYear = Number(raw.slice(0, 4))
-  const dbMonth = raw.slice(5, 7)
-  if (dbMonth === bm) return `${dbYear}-${bm}`
-
-  const monthBefore = String(((Number(dbMonth) + 10) % 12) + 1).padStart(2, '0')
-  if (monthBefore === bm) {
-    const year = dbMonth === '01' ? dbYear - 1 : dbYear
-    return `${year}-${bm}`
-  }
-
-  // Weder das eine noch das andere (z. B. Geburtsdatum nachträglich geändert):
-  // der Geburtstag im Profil zählt.
-  return `${dbYear}-${bm}`
-}
+// EARLIEST_DUE_MONTH und birthdayRoundMonth stehen jetzt gemeinsam mit dem
+// Startbildschirm in src/lib/birthdayRounds.ts (siehe Import oben).
 
 export default function StammtischEditScreen() {
   const insets = useSafeAreaInsets()
@@ -1070,7 +1032,6 @@ export default function StammtischEditScreen() {
   // Ergänzt DB-Einträge um profil-basierte Einträge (falls noch kein birthday_rounds-Eintrag existiert)
   // ACHTUNG: muss NACH checkGiven stehen, da checkGiven hier aufgerufen wird
   const overdueRounds = useMemo(() => {
-    const year = date ? date.slice(0, 4) : String(new Date().getFullYear())
     const fromDB = dueRounds.filter(r => effectiveDueMonth(r) < currentMonthYYYYMM)
 
     // Profile mit Geburtstag in vergangenen Monaten, die noch keinen DB-Eintrag
@@ -1078,19 +1039,13 @@ export default function StammtischEditScreen() {
     // also auch die Monate des Vorjahres (Regel R-17: überfällige Runden
     // verfallen zum Jahreswechsel nicht). Vor dem Stichtag wird nichts
     // nachgetragen.
-    const earliestMonth = EARLIEST_DUE_MONTH.slice(0, 7)
     const fromProfiles: BR[] = profiles
       .map(p => {
-        if (!p.birthday) return null
-        const bMonth = (p.birthday as string).slice(5, 7)
-        // Liegt der Geburtsmonat in diesem Jahr schon hinter uns, zählt dieses
-        // Jahr; sonst der gleiche Monat im Vorjahr.
-        const thisYear = `${year}-${bMonth}`
-        const monat = thisYear < currentMonthYYYYMM
-          ? thisYear
-          : `${Number(year) - 1}-${bMonth}`
-        if (monat < earliestMonth) return null
-        return { p, monat }
+        // Regel R-17 und Stichtag stecken in overdueBirthdayMonth()
+        // (src/lib/birthdayRounds.ts) – dieselbe Rechnung nutzt der
+        // Startbildschirm.
+        const monat = overdueBirthdayMonth(p.birthday, currentMonthYYYYMM)
+        return monat ? { p, monat } : null
       })
       .filter((x): x is { p: Profile; monat: string } => x !== null)
       .filter(({ p, monat }) => {

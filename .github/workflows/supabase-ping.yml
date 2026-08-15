@@ -1,9 +1,31 @@
 name: Supabase Keep-Alive Ping
 
+# Warum es diesen Workflow gibt
+# -----------------------------
+# Supabase pausiert Projekte im kostenlosen Tarif nach 7 Tagen ohne Zugriff.
+# Danach ist die App beim naechsten Start erst einmal tot, bis das Projekt von
+# Hand wieder gestartet wird. Dieser Workflow ruft alle 2 Tage eine winzige
+# Abfrage auf und haelt die Datenbank damit wach.
+#
+# Zweites Problem: GitHub schaltet zeitgesteuerte Workflows automatisch ab,
+# wenn 60 Tage lang nichts ins Repository gepusht wurde ("disabled_inactivity").
+# Genau das ist am 19.05.2026 passiert – der Ping lief bis dahin sauber und
+# hoerte dann still auf. Der zweite Job unten pusst deshalb selbst einen leeren
+# Commit, wenn das Repository laenger als 45 Tage unberuehrt war, und setzt die
+# 60-Tage-Uhr damit zurueck.
+#
+# Der verwendete Schluessel ist der oeffentliche anon-Key. Der steckt ohnehin in
+# jeder ausgelieferten App und darf ueber die Zeilen-Sicherheit (RLS) nur das,
+# was auch ein nicht angemeldeter Gast darf. Der Service-Role-Key gehoert hier
+# NICHT hinein.
+
 on:
   schedule:
-    - cron: '0 8 */3 * *'  # alle 3 Tage um 08:00 UTC
+    - cron: '0 8 */2 * *'  # alle 2 Tage um 08:00 UTC (Puffer zu Supabases 7 Tagen)
   workflow_dispatch:         # auch manuell auslösbar (GitHub → Actions → Run workflow)
+
+permissions:
+  contents: write
 
 jobs:
   ping:
@@ -17,3 +39,33 @@ jobs:
             -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjYnFua3ljanJvaXNrd3FjZnRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY5MDM3MzcsImV4cCI6MjA3MjQ3OTczN30.EPU1xSh7K4MzNl2DgCAuITBgb8ywh-ePBDmpVewKRoA" \
             --fail
           echo "Ping erfolgreich – Supabase ist wach"
+
+  keepalive:
+    # Haelt den Workflow selbst am Leben: GitHub deaktiviert cron-Workflows nach
+    # 60 Tagen ohne Repository-Aktivitaet.
+    needs: ping
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    # Wenn das Pushen scheitert (z. B. weil die Actions-Rechte im Repository auf
+    # "nur lesen" stehen), ist das aergerlich, aber der eigentliche Ping oben ist
+    # dann trotzdem schon durchgelaufen. Der Lauf soll deswegen nicht rot werden.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Leeren Commit pushen, falls seit 45 Tagen nichts passiert ist
+        run: |
+          LETZTER=$(git log -1 --format=%ct)
+          JETZT=$(date +%s)
+          TAGE=$(( (JETZT - LETZTER) / 86400 ))
+          echo "Letzter Commit vor $TAGE Tagen"
+          if [ "$TAGE" -lt 45 ]; then
+            echo "Noch frisch genug – nichts zu tun."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: keep-alive (haelt den Supabase-Ping aktiv) [skip ci]"
+          git push

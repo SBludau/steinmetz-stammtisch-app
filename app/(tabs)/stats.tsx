@@ -505,7 +505,9 @@ export default function StatsScreen() {
   }, [donors, profileByKey])
 
   // Renderer mit Navigation
-  const renderList = (list: Ranked[], unit: string, emptyText: string) => {
+  // unitSingular ist die Einzahl-Form, die bei genau 1 statt unit benutzt wird
+  // ("1 Runde" statt "1 Runden"). Fehlt sie, bleibt es bei unit.
+  const renderList = (list: Ranked[], unit: string, emptyText: string, unitSingular?: string) => {
     if (!list.length) return <Text style={type.body}>{emptyText}</Text>
     return (
       <View>
@@ -528,7 +530,7 @@ export default function StatsScreen() {
               rank={row.rank}
               name={nameForKey(row.key)}
               avatar={avatarForKey(row.key)}
-              detail={`${row.value} ${unit}`}
+              detail={`${row.value} ${row.value === 1 && unitSingular ? unitSingular : unit}`}
               onPress={handlePress} // <--- Navigation auslösen
             />
           )
@@ -581,7 +583,7 @@ export default function StatsScreen() {
                 title="Beharrlichkeit führt zum Ziel"
                 subtitle={`Teilnahmen im Jahr ${selectedYear}`}
               />
-              {renderList(topTeilnahmenRanked, 'Teilnahmen', 'Noch keine Daten für diesen Zeitraum.')}
+              {renderList(topTeilnahmenRanked, 'Teilnahmen', 'Noch keine Daten für diesen Zeitraum.', 'Teilnahme')}
             </Box>
 
             <View style={{ height: 12 }} />
@@ -603,7 +605,7 @@ export default function StatsScreen() {
                 title="Schankwirtschafts-Runden"
                 subtitle={`Großzügigste Spender im Jahr ${selectedYear}`}
               />
-              {renderList(topSpenderRanked, 'Runden', 'Noch keine bestätigten Runden verbucht.')}
+              {renderList(topSpenderRanked, 'Runden', 'Noch keine bestätigten Runden verbucht.', 'Runde')}
             </Box>
           </View>
         )}

@@ -9,6 +9,7 @@ import { supabase } from '../../src/lib/supabase'
 import BottomNav, { NAV_BAR_BASE_HEIGHT } from '../../src/components/BottomNav'
 import { colors, radius } from '../../src/theme/colors'
 import { type } from '../../src/theme/typography'
+import { EARLIEST_DUE_MONTH, birthdayRoundMonth, overdueBirthdayMonth } from '../../src/lib/birthdayRounds'
 
 // ---- Konfiguration ----
 const BUG_REPORT_URL = 'https://forms.gle/pJrbotLJWR3cv3ML8'
@@ -361,47 +362,65 @@ export default function HomeScreen() {
 
   // Überfällige Geburtstags-Runden laden (profil-basiert, unabhängig von birthday_rounds-Seeding)
   // Nutzt profilesRef statt profiles-State, damit keine neue Funktionsreferenz entsteht (kein Re-Render-Loop)
+  //
+  // Rechnet nach denselben Regeln wie der Stammtisch-Bildschirm. Die Regeln
+  // stehen gemeinsam in src/lib/birthdayRounds.ts:
+  //   * Jahreswechsel (R-17): Dezember-Geburtstage bleiben im Januar überfällig
+  //   * Stichtag: nichts vor EARLIEST_DUE_MONTH
+  //   * der laufende Monat gilt noch nicht als überfällig (R-5a)
+  //   * "schon gegeben" zählt pro Person UND Monat, nicht pro Person
   const loadOverdueRounds = useCallback(async () => {
     const currentProfiles = profilesRef.current
     if (currentProfiles.length === 0) return
-    const now = new Date()
-    const currentYear = now.getFullYear()
-    const currentMonth = now.getMonth() + 1 // 1–12
 
-    // Nur approved/settled Runden dieses Jahr laden (wer hat seine Runde schon gegeben?)
+    const now = new Date()
+    const currentYear = String(now.getFullYear())
+    const currentMonthYYYYMM = `${currentYear}-${String(now.getMonth() + 1).padStart(2, '0')}`
+
+    // Alle Runden ab dem Stichtag laden – nicht nur die des laufenden Jahres,
+    // sonst zählt eine im Dezember gegebene Runde im Januar nicht mehr.
     const { data: rounds } = await supabase
       .from('birthday_rounds')
-      .select('auth_user_id, profile_id, approved_at, settled_stammtisch_id')
-      .gte('due_month', `${currentYear}-01-01`)
-      .lte('due_month', `${currentYear}-12-31`)
+      .select('auth_user_id, profile_id, due_month, approved_at, settled_stammtisch_id')
+      .gte('due_month', EARLIEST_DUE_MONTH)
 
-    const idKeyFor = (r: any) => r.auth_user_id ?? `pid:${r.profile_id}`
+    const profileFor = (r: any): Profile | undefined =>
+      currentProfiles.find(p =>
+        (r.auth_user_id && p.auth_user_id === r.auth_user_id) ||
+        (!r.auth_user_id && r.profile_id != null && p.id === r.profile_id)
+      )
+    const keyFor = (p: Profile) => p.auth_user_id ?? `pid:${p.id}`
+
+    // Erledigt wird pro Person UND Monat gemerkt: eine offene Runde aus dem
+    // Vorjahr darf nicht verschwinden, nur weil die diesjährige gegeben wurde.
+    // Der Monat kommt aus dem Geburtstag im Profil, nicht roh aus der Datenbank
+    // (dort steht teils noch der Monat NACH dem Geburtstag).
     const doneKeys = new Set(
       (rounds ?? [])
         .filter(r => !!r.approved_at || !!r.settled_stammtisch_id)
-        .map(r => idKeyFor(r))
+        .map(r => {
+          const prof = profileFor(r)
+          const monat = birthdayRoundMonth(prof?.birthday ?? null, r.due_month, currentYear)
+          const key = prof ? keyFor(prof) : (r.auth_user_id ?? `pid:${r.profile_id}`)
+          return `${key}|${monat}`
+        })
     )
 
-    // Profile mit Geburtstag, dessen Monat schon vorbei ist UND noch keine genehmigte Runde
+    // Profile, deren Geburtsmonat hinter uns liegt und für die noch keine
+    // genehmigte Runde in genau diesem Monat verbucht ist.
     const overdue: OverdueRound[] = currentProfiles
-      .filter(p => {
-        if (!p.birthday) return false
-        const bMonth = parseInt((p.birthday as string).slice(5, 7), 10)
-        return bMonth <= currentMonth
-      })
-      .filter(p => {
-        const key = p.auth_user_id ?? `pid:${p.id}`
-        return !doneKeys.has(key)
-      })
       .map(p => {
-        const bMonth = (p.birthday as string).slice(5, 7)
-        return {
-          id: p.id ?? 0,
-          auth_user_id: p.auth_user_id ?? null,
-          profile_id: p.id ?? null,
-          due_month: `${currentYear}-${bMonth}-01`,
-        }
+        const monat = overdueBirthdayMonth(p.birthday, currentMonthYYYYMM)
+        return monat ? { p, monat } : null
       })
+      .filter((x): x is { p: Profile; monat: string } => x !== null)
+      .filter(({ p, monat }) => !doneKeys.has(`${keyFor(p)}|${monat}`))
+      .map(({ p, monat }) => ({
+        id: p.id ?? 0,
+        auth_user_id: p.auth_user_id ?? null,
+        profile_id: p.id ?? null,
+        due_month: `${monat}-01`,
+      }))
       .sort((a, b) => a.due_month.localeCompare(b.due_month))
 
     setOverdueRounds(overdue)
@@ -658,7 +677,7 @@ export default function HomeScreen() {
               {overdueRounds.map(r => {
                 const prof = profileForRound(r)
                 return (
-                  <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View key={`${r.id}-${r.due_month}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     {prof && avatarFor(prof) ? (
                       <Image
                         source={{ uri: avatarFor(prof)! }}
@@ -668,11 +687,8 @@ export default function HomeScreen() {
                       <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: '#FF6B6B', backgroundColor: '#333' }} />
                     )}
                     <Text style={{ ...type.body, flexShrink: 1 }}>
-                      🎂 {prof ? (prof.first_name || '(Unbekannt)') : '(Unbekannt)'} — seit {germanMonthYear(
-                        prof?.birthday
-                          ? `${r.due_month.slice(0, 4)}-${prof.birthday.slice(5, 7)}-01`
-                          : r.due_month
-                      )}
+                      {/* due_month ist bereits der richtige Monat (siehe loadOverdueRounds) */}
+                      🎂 {prof ? (prof.first_name || '(Unbekannt)') : '(Unbekannt)'} — seit {germanMonthYear(r.due_month)}
                     </Text>
                   </View>
                 )
