@@ -2,6 +2,12 @@
 -- Geburtstagsrunden: Faelligkeitsmonat = Geburtsmonat
 -- Stand: 15.08.2026
 --
+-- ERLEDIGT AM 16.08.2026. Diese Datei ist nur noch die Planungsvorlage.
+-- Was tatsaechlich gelaufen ist, steht in:
+--   20260815234718_birthday_rounds_seed_geburtsmonat.sql       (TEIL 1)
+--   20260815234731_birthday_rounds_umstellung_geburtsmonat.sql (TEIL 2)
+-- Dort stehen auch die Rueckbau-Bloecke. Nicht noch einmal ausfuehren.
+--
 -- BITTE ZUERST LESEN. Diese Datei wird NICHT automatisch ausgefuehrt.
 -- Sie besteht aus drei Teilen, die einzeln und in dieser Reihenfolge im
 -- Supabase SQL-Editor ausgefuehrt werden sollen:

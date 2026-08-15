@@ -12,6 +12,40 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.15] - 2026-08-16
+
+**Geänderte Dateien**
+- `supabase/migrations/20260815234718_birthday_rounds_seed_geburtsmonat.sql` (neu)
+- `supabase/migrations/20260815234731_birthday_rounds_umstellung_geburtsmonat.sql` (neu)
+- `supabase/migrations/2026-08-15_geburtstagsrunden_monat.sql` (als erledigt markiert)
+
+Datenbank-Umstellung, kein App-Code. Der Build vom 15.08. bleibt gültig.
+
+### Geändert
+- **Fälligkeitsmonat ist jetzt der Geburtsmonat – auch in der Datenbank** –
+  Bisher trug die Datenbank die Runde in den Monat *nach* dem Geburtstag ein,
+  die App rechnete aber mit dem Geburtsmonat selbst. Beide sagen jetzt
+  dasselbe. Zusätzlich wurde der Stichtag in der Datenbank von 01.10.2025 auf
+  01.09.2025 gezogen, damit er zur App passt.
+- **Vorhandene Runden auf den Geburtsmonat gezogen** – Drei von acht Zeilen
+  standen einen Monat zu spät und wurden zurückgeschoben (April → März,
+  Mai → April, August → Juli). Nichts wurde gelöscht, es gab keine
+  Doppeleinträge mehr. Beide Migrationsdateien enthalten einen fertigen
+  Rückbau-Block.
+
+### Geprüft
+- Kontrollabfrage nach der Umstellung ist leer: keine Runde steht mehr in
+  einem anderen Monat als dem Geburtsmonat.
+- Die Anzeige in der App ist unverändert richtig – zwei überfällige Runden
+  (Februar und Juli 2026), und beim Stammtisch am 11.09.2026 steht die
+  September-Runde weiterhin als „noch nicht fällig" da, weil der Geburtstag
+  erst zwei Tage nach dem Stammtisch ist. Auf dem Startbildschirm, in der
+  Stammtisch-Detailseite und unter „Früher" jeweils am Bildschirm geprüft.
+- Für den nächsten Stammtisch würde die neue Funktion genau eine Runde
+  anlegen – vorab ohne Schreibzugriff durchgerechnet.
+
+---
+
 ## [0.4.14] - 2026-08-16
 
 **Geänderte Dateien**
