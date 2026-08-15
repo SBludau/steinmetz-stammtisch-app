@@ -886,19 +886,13 @@ export default function StammtischEditScreen() {
   const currentMonth = date ? date.slice(5,7) : ''
   const isBeforeEarliestDue = currentMonthKey !== '' && currentMonthKey < EARLIEST_DUE_MONTH
 
-  // Effektiver Fälligkeits-Monat (YYYY-MM) einer Person: immer der Geburtsmonat.
-  // Nur wenn kein Geburtstag hinterlegt ist, gilt der in der Datenbank
-  // gespeicherte Monat als Rückfallwert.
+  // Effektiver Fälligkeits-Monat (YYYY-MM) einer Person – die Rechnung selbst
+  // steht oben in birthdayRoundMonth().
   //
-  // WICHTIG: Diese eine Funktion muss ueberall benutzt werden. Die Datenbank
-  // speichert den Monat teilweise nach einer aelteren Rechnung (Geburtsmonat + 1).
+  // WICHTIG: Diese eine Funktion muss überall benutzt werden. Die Datenbank
+  // speichert den Monat teilweise nach einer älteren Rechnung (Geburtsmonat + 1).
   // Wer an einer Stelle den rohen Datenbankwert vergleicht und an anderer Stelle
-  // den Geburtsmonat, bekommt zwei verschiedene Ergebnisse fuer dieselbe Runde –
-  // genau daran lag es, dass eine bereits gegebene Runde weiter als offen galt.
-  // Fälligkeitsmonat einer Person – siehe birthdayRoundMonth oben.
-  // WICHTIG: Diese eine Funktion muss überall benutzt werden. Wer an einer
-  // Stelle den rohen Datenbankwert vergleicht und an anderer Stelle den
-  // Geburtsmonat, bekommt zwei verschiedene Ergebnisse für dieselbe Runde –
+  // den Geburtsmonat, bekommt zwei verschiedene Ergebnisse für dieselbe Runde –
   // genau daran lag es, dass eine bereits gegebene Runde weiter als offen galt.
   const monthForPerson = useCallback(
     (authUserId: string | null, profileId: number | null, dbDueMonth: string | null): string => {
