@@ -23,7 +23,7 @@ type Profile = {
 }
 type EventRow = { id: number; date: string }
 type ParticipantRow = { auth_user_id: string; status: 'going' | 'declined' | 'maybe' }
-type DonorRow = { auth_user_id: string; settled_at: string | null }
+type DonorRow = { auth_user_id: string | null; profile_id: number | null; stammtisch_id: number | null }
 type Ranked = { auth_user_id: string; value: number }
 
 const Y = new Date().getFullYear()
@@ -216,14 +216,36 @@ export default function HallOfFameScreen() {
       }
       setParticipantsByEvent(byEvent)
 
-      const { data: donorData, error: e3 } = await supabase
+      // Runden zaehlen: beide Rundenarten, nur bestaetigte, Zeitraum nach Stammtischdatum.
+      // (Gleiche Regeln wie in der Statistik und auf der Mitgliedskarte.)
+      const eventIds = new Set(evs.map(ev => ev.id))
+
+      const { data: bRounds, error: e3 } = await supabase
         .from('birthday_rounds')
-        .select('auth_user_id,settled_at')
-        .not('settled_at', 'is', null)
-        .gte('settled_at', `${Y}-01-01`)
-        .lte('settled_at', `${Y}-12-31`)
+        .select('auth_user_id,profile_id,settled_stammtisch_id')
+        .not('approved_at', 'is', null)
       if (e3) throw e3
-      setDonors((donorData ?? []) as DonorRow[])
+
+      const { data: sRounds, error: e4 } = await supabase
+        .from('spender_rounds')
+        .select('auth_user_id,profile_id,stammtisch_id')
+        .not('approved_at', 'is', null)
+      if (e4) throw e4
+
+      const allRounds: DonorRow[] = [
+        ...(bRounds ?? []).map(r => ({
+          auth_user_id: r.auth_user_id ?? null,
+          profile_id: r.profile_id ?? null,
+          stammtisch_id: r.settled_stammtisch_id ?? null,
+        })),
+        ...(sRounds ?? []).map(r => ({
+          auth_user_id: r.auth_user_id ?? null,
+          profile_id: r.profile_id ?? null,
+          stammtisch_id: r.stammtisch_id ?? null,
+        })),
+      ].filter(r => r.stammtisch_id != null && eventIds.has(r.stammtisch_id))
+
+      setDonors(allRounds)
     } catch (e: any) {
       setError(e.message || 'Fehler beim Laden')
     } finally {
@@ -272,20 +294,28 @@ export default function HallOfFameScreen() {
     return map
   }, [events, participantsByEvent])
 
+  // Runden werden pro Profil gezaehlt, damit auch nicht verknuepfte Mitglieder auftauchen.
   const ranksSpender = useMemo(() => {
-    const counts: Record<string, number> = {}
-    for (const d of donors) {
-      if (!d.settled_at) continue
-      counts[d.auth_user_id] = (counts[d.auth_user_id] || 0) + 1
+    const byAuth = new Map<string, number>()
+    for (const p of profiles) {
+      if (p.auth_user_id) byAuth.set(p.auth_user_id, p.id)
     }
-    const ranked: Ranked[] = Object.entries(counts)
-      .map(([auth_user_id, value]) => ({ auth_user_id, value }))
+    const counts = new Map<number, number>()
+    for (const d of donors) {
+      let pid: number | null = null
+      if (d.profile_id != null && profiles.some(p => p.id === d.profile_id)) pid = d.profile_id
+      else if (d.auth_user_id && byAuth.has(d.auth_user_id)) pid = byAuth.get(d.auth_user_id)!
+      if (pid == null) continue
+      counts.set(pid, (counts.get(pid) || 0) + 1)
+    }
+    const ranked = [...counts.entries()]
+      .map(([profileId, value]) => ({ profileId, value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 5)
-    const map = new Map<string, number>()
-    ranked.forEach((r, idx) => map.set(r.auth_user_id, idx + 1))
+    const map = new Map<number, number>()
+    ranked.forEach((r, idx) => map.set(r.profileId, idx + 1))
     return map
-  }, [donors])
+  }, [donors, profiles])
 
   const sortedProfiles = useMemo(() => {
     return [...profiles].sort((a, b) =>
@@ -349,7 +379,7 @@ export default function HallOfFameScreen() {
                     awards={{
                       teilnahmen: ranksTeilnahmen.get(p.auth_user_id || ''),
                       streak: ranksStreaks.get(p.auth_user_id || ''),
-                      spender: ranksSpender.get(p.auth_user_id || ''),
+                      spender: ranksSpender.get(p.id),
                     }}
                     onPress={() => goToCard(p)} // <--- Navigation
                   />
@@ -374,7 +404,7 @@ export default function HallOfFameScreen() {
                     awards={{
                       teilnahmen: ranksTeilnahmen.get(p.auth_user_id || ''),
                       streak: ranksStreaks.get(p.auth_user_id || ''),
-                      spender: ranksSpender.get(p.auth_user_id || ''),
+                      spender: ranksSpender.get(p.id),
                     }}
                     onPress={() => goToCard(p)} // <--- Navigation
                   />

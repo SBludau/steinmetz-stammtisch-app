@@ -153,6 +153,16 @@ const parseYMD = (iso: string) => {
 }
 const cmpDate = (a: string, b: string) => a.localeCompare(b)
 
+// "Heute" nach ORTSZEIT des Geraets (nicht UTC).
+// toISOString() liefert UTC und haette in Deutschland zwischen 00:00 und 02:00
+// noch den Vortag geliefert.
+const localToday = () => {
+  const d = new Date()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${mm}-${dd}`
+}
+
 // Alter am Referenzdatum (Eventtag)
 const ageOnDate = (birthdayIso: string, refIso: string) => {
   const b = parseYMD(birthdayIso)
@@ -424,7 +434,7 @@ export default function HomeScreen() {
   }, [sessionChecked])
 
   // heute immer frisch berechnen bei jedem Aufruf
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = localToday()
 
   const upcoming = useMemo(
     () => rows.filter(r => r.date >= todayStr).sort((a, b) => (cmpDate(a.date, b.date) || a.id - b.id)),

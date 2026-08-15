@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { View, Text, TextInput, Button, ScrollView, Alert, Pressable, ActivityIndicator, Image } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -121,8 +121,32 @@ export default function StammtischEditScreen() {
   const [moderation, setModeration] = useState<Donor[]>([])
   const [loadingModeration, setLoadingModeration] = useState(true)
 
+  // Schutz gegen Doppel-Tippen: solange eine Buchung laeuft, wird die naechste
+  // ignoriert. Ref statt State, damit die Sperre sofort greift.
+  const bookingBusy = useRef(false)
+
+  // Tickt jede Minute, damit sich das Zeitfenster auch waehrend einer offenen
+  // Seite aktualisiert (z.B. Seite um 23:50 geoeffnet, Tipp um 00:05).
+  const [nowTick, setNowTick] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 60_000)
+    return () => clearInterval(t)
+  }, [])
+
   // Zeitfenster-Logik (wieder aktiv): erlaubt am Tag D und am Folgetag (bis 23:59:59)
   const isWithinGivingWindow = useMemo(() => {
+    if (!date) return false
+    const eventStart = new Date(date + 'T00:00:00')
+    const eventEnd = new Date(eventStart)
+    eventEnd.setDate(eventEnd.getDate() + 1)
+    eventEnd.setHours(23, 59, 59, 999)
+    const now = new Date(nowTick)
+    return now >= eventStart && now <= eventEnd
+  }, [date, nowTick])
+
+  // Taggenaue Pruefung im Moment des Antippens (der Merkwert oben kann bis zu
+  // einer Minute alt sein).
+  const isWithinGivingWindowNow = useCallback(() => {
     if (!date) return false
     const eventStart = new Date(date + 'T00:00:00')
     const eventEnd = new Date(eventStart)
@@ -496,7 +520,7 @@ export default function StammtischEditScreen() {
   // „Gegeben“ (linked) – Admin darf Attendance ignorieren; Zeitfenster-Sperre aktiv
   async function givenCurrentOrOverdue(userId: string, roundId?: number) {
     if (!Number.isFinite(idNum) || !date) return
-    if (!isAdmin && !isWithinGivingWindow) {
+    if (!isAdmin && !isWithinGivingWindowNow()) {
       Alert.alert('Hinweis', 'Runden können nur am Stammtischtag und am Folgetag verbucht werden.')
       return
     }
@@ -505,6 +529,8 @@ export default function StammtischEditScreen() {
       Alert.alert('Hinweis', 'Runden können nur von anwesenden Mitgliedern gegeben werden.')
       return
     }
+    if (bookingBusy.current) return
+    bookingBusy.current = true
     try {
       const prof = profiles.find(p => p.auth_user_id === userId)
       const settledAt = new Date().toISOString()
@@ -544,20 +570,22 @@ export default function StammtischEditScreen() {
       if (isAdmin) await loadModeration()
     } catch (e: any) {
       Alert.alert('Fehler', e?.message ?? 'Konnte Runde nicht verbuchen.')
+    } finally {
+      bookingBusy.current = false
     }
   }
 
-  // „Gegeben“ für unverknüpfte Profile (nur Admin/SU); Zeitfenster-Sperre für Nicht-Admins
+  // „Gegeben“ für unverknüpfte Profile (nur Admin/SU)
   async function givenForUnlinkedProfile(profileId: number) {
     if (!Number.isFinite(idNum) || !date) return
-    if (!isAdmin && !isWithinGivingWindow) {
-      Alert.alert('Hinweis', 'Runden können nur am Stammtischtag und am Folgetag verbucht werden.')
-      return
-    }
+    // Zuerst die Rolle pruefen, sonst bekaeme ein Mitglied faelschlich die
+    // Zeitfenster-Meldung statt des Hinweises, dass es gar nicht darf.
     if (!isAdmin) {
       Alert.alert('Nicht erlaubt', 'Nur Admin/Superuser können unverknüpfte Runden verbuchen.')
       return
     }
+    if (bookingBusy.current) return
+    bookingBusy.current = true
     try {
       const prof = profiles.find(p => p.id === profileId) || null
       // due_month am Geburtsmonat ausrichten
@@ -619,6 +647,8 @@ export default function StammtischEditScreen() {
       Alert.alert('Erfasst', 'Geburtstagsrunde wurde verbucht (unverknüpft).')
     } catch (e: any) {
       Alert.alert('Fehler', e?.message ?? 'RPC admin_give_unlinked_birthday_round fehlt oder schlug fehl.')
+    } finally {
+      bookingBusy.current = false
     }
   }
 
@@ -628,7 +658,7 @@ export default function StammtischEditScreen() {
     const { data: sess } = await supabase.auth.getUser()
     const uid = sess?.user?.id
     if (!uid && !isAdmin) { Alert.alert('Fehler', 'Nicht eingeloggt.'); return }
-    if (!isAdmin && !isWithinGivingWindow) {
+    if (!isAdmin && !isWithinGivingWindowNow()) {
       Alert.alert('Hinweis', 'Extra-Runden können nur am Stammtischtag und am Folgetag gegeben werden.')
       return
     }
@@ -638,6 +668,8 @@ export default function StammtischEditScreen() {
         return
       }
     }
+    if (bookingBusy.current) return
+    bookingBusy.current = true
     try {
       const prof = uid ? profiles.find(p => p.auth_user_id === uid) : null
       const payload: any = {
@@ -655,6 +687,8 @@ export default function StammtischEditScreen() {
       Alert.alert('Danke!', 'Runde wurde verbucht.')
     } catch (e: any) {
       Alert.alert('Fehler', e?.message ?? 'Konnte Runde nicht verbuchen.')
+    } finally {
+      bookingBusy.current = false
     }
   }
 
@@ -665,6 +699,8 @@ export default function StammtischEditScreen() {
       Alert.alert('Nicht erlaubt', 'Nur Admin/Superuser können Spender-Runden für andere verbuchen.')
       return
     }
+    if (bookingBusy.current) return
+    bookingBusy.current = true
     try {
       const prof = profiles.find(p => p.id === profileId) || null
       const payload: any = {
@@ -679,6 +715,8 @@ export default function StammtischEditScreen() {
       Alert.alert('Erfasst', 'Edle Spender Runde wurde verbucht.')
     } catch (e: any) {
       Alert.alert('Fehler', e?.message ?? 'Konnte Spender-Runde nicht verbuchen.')
+    } finally {
+      bookingBusy.current = false
     }
   }
 
@@ -973,11 +1011,12 @@ export default function StammtischEditScreen() {
       givenLinkedByMonth, givenUnlinkedByMonth, approvedBirthdayRounds])
 
   // Sichtbarkeiten (muss nach overdueRounds stehen)
+  // Bei einem Ladefehler bleibt die Box sichtbar und zeigt die Fehlermeldung.
+  // Vorher verschwand sie komplett und wirkte wie "es gibt keine Runden".
   const showBirthdayBox =
     !loadingRounds &&
-    !roundsErr &&
     !isBeforeEarliestDue &&
-    (currentMonthBirthdays.length > 0 || overdueRounds.length > 0)
+    (!!roundsErr || currentMonthBirthdays.length > 0 || overdueRounds.length > 0)
 
   const checkPending = (authUserId: string | null, profileId: number | null, monthYYYYMM: string) => {
     const round = resolveDueRound(authUserId, profileId, monthYYYYMM)
@@ -1128,11 +1167,14 @@ export default function StammtischEditScreen() {
 
                         const isPending = pendingFromDonors || pendingFromRound
 
+                        // Ausserhalb des Zeitfensters ist der Knopf jetzt auch sichtbar
+                        // gesperrt (vorher sah er aktiv aus und meldete sich erst
+                        // nach dem Antippen).
                         const canClick =
                           !hasGiven && (
                             isAdmin
                               ? true
-                              : (p.auth_user_id ? attending : false)
+                              : (p.auth_user_id ? (attending && isWithinGivingWindow) : false)
                           )
 
                         const onPress = () =>
@@ -1189,9 +1231,9 @@ export default function StammtischEditScreen() {
                       })
                     )}
 
-                    <Text style={{ ...type.body, fontWeight: '600', marginTop: 6 }}>Überfällig</Text>
+                    <Text style={{ ...type.body, fontWeight: '600', marginTop: 6 }}>Überfällige Geburtstagsrunden</Text>
                     {overdueRounds.length === 0 ? (
-                      <Text style={type.body}>Keine offenen Runden aus Vormonaten.</Text>
+                      <Text style={type.body}>Keine offenen Geburtstagsrunden aus Vormonaten.</Text>
                     ) : (
                       overdueRounds.map(r => {
                         const month = effectiveDueMonth(r) // YYYY-MM
@@ -1214,7 +1256,7 @@ export default function StammtischEditScreen() {
                           !hasGiven && (
                             isAdmin
                               ? true
-                              : (r.auth_user_id ? attending : false)
+                              : (r.auth_user_id ? (attending && isWithinGivingWindow) : false)
                           )
 
                         const onPress = () =>
@@ -1311,7 +1353,7 @@ export default function StammtischEditScreen() {
                                   <Text style={{ color: colors.text, fontSize: 12 }}>{isBirthday ? '🎂' : '🥂'}</Text>
                                 </View>
                               )}
-                              <Text style={{ ...type.body, flex: 1 }}>{name}</Text>
+                              <Text style={{ ...type.body, flex: 1 }}>{isBirthday ? '🎂' : '🥂'} {name}</Text>
                               <Text style={{ color: CONFIRMED_COLOR, fontSize: 16 }}>✓</Text>
                             </View>
                           )
@@ -1341,7 +1383,7 @@ export default function StammtischEditScreen() {
                                   <Text style={{ color: colors.text, fontSize: 12 }}>{isBirthday ? '🎂' : '🥂'}</Text>
                                 </View>
                               )}
-                              <Text style={{ ...type.body, flex: 1 }}>{name}</Text>
+                              <Text style={{ ...type.body, flex: 1 }}>{isBirthday ? '🎂' : '🥂'} {name}</Text>
                               <Text style={{ ...type.caption, color: PENDING_COLOR }}>⏳</Text>
                             </View>
                           )
@@ -1488,40 +1530,44 @@ export default function StammtischEditScreen() {
                             <Text style={type.body}>{fullName(p)}</Text>
 
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                              {/* Admin – Geburtstagsrunde oder Edle-Spender-Runde für Unlinked */}
+                              {/* Admin – Geburtstagsrunde nur fuer unverknuepfte Profile
+                                  (verknuepfte Mitglieder laufen ueber die Geburtstags-Box) */}
                               {isAdmin && !isLinked ? (
-                                <>
-                                  <Pressable
-                                    onPress={() => givenForUnlinkedProfile(p.id)}
-                                    style={{
-                                      width: 28,
-                                      height: 28,
-                                      borderRadius: 14,
-                                      borderWidth: 1,
-                                      borderColor: colors.border,
-                                      backgroundColor: colors.cardBg,
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                    }}
-                                  >
-                                    <Text style={{ fontSize: 16 }}>🎂</Text>
-                                  </Pressable>
-                                  <Pressable
-                                    onPress={() => giveSpenderRoundForProfile(p.id)}
-                                    style={{
-                                      width: 28,
-                                      height: 28,
-                                      borderRadius: 14,
-                                      borderWidth: 1,
-                                      borderColor: colors.border,
-                                      backgroundColor: colors.cardBg,
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                    }}
-                                  >
-                                    <Text style={{ fontSize: 16 }}>🥂</Text>
-                                  </Pressable>
-                                </>
+                                <Pressable
+                                  onPress={() => givenForUnlinkedProfile(p.id)}
+                                  style={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 14,
+                                    borderWidth: 1,
+                                    borderColor: colors.border,
+                                    backgroundColor: colors.cardBg,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 16 }}>🎂</Text>
+                                </Pressable>
+                              ) : null}
+
+                              {/* Admin – Edle-Spender-Runde fuer ALLE Teilnehmer,
+                                  auch fuer verknuepfte Mitglieder */}
+                              {isAdmin ? (
+                                <Pressable
+                                  onPress={() => giveSpenderRoundForProfile(p.id)}
+                                  style={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 14,
+                                    borderWidth: 1,
+                                    borderColor: colors.border,
+                                    backgroundColor: colors.cardBg,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 16 }}>🥂</Text>
+                                </Pressable>
                               ) : null}
 
                               {/* Anwesenheit */}

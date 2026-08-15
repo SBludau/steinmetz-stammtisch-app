@@ -12,6 +12,75 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.8] - 2026-08-15
+
+**Geänderte Dateien**
+- `app/(tabs)/hall_of_fame.tsx`
+- `app/(tabs)/stats.tsx`
+- `app/(tabs)/index.tsx`
+- `app/(tabs)/stammtisch/[id].tsx`
+
+Erste von drei Etappen aus der vollständigen Prüfung der Runden-Regeln
+(Bericht: `RUNDEN-BERICHT-IST-SOLL.md`, Regelwerk: `RUNDEN-REGELN-PLAN.md`).
+Diese Etappe umfasst nur Änderungen ohne Eingriff in die Datenbank.
+
+### Behoben
+- **Hall of Fame zählte nur einen Teil der Runden** – Gewertet wurden bisher
+  ausschließlich Geburtstagsrunden, und zwar unabhängig davon, ob ein Admin sie
+  bestätigt hatte. Jetzt zählen **beide** Rundenarten (Geburtstag und Edle
+  Spender) und **nur bestätigte** Runden – dieselbe Regel wie in der Statistik
+  und auf der Mitgliedskarte.
+- **Hall of Fame übersprang nicht verknüpfte Mitglieder** – Die Wertung lief über
+  die Anmelde-Kennung; wer kein eigenes Konto hat, konnte nie auf das Treppchen.
+  Gezählt wird jetzt pro Profil.
+- **Statistik-Zeitraum richtet sich nach dem Stammtischdatum** – Bisher zählte
+  das Datum der Bestätigung durch den Admin. Eine Dezember-Runde, die erst im
+  Januar bestätigt wurde, landete dadurch im Folgejahr. Maßgeblich ist jetzt der
+  Stammtisch, zu dem die Runde gehört.
+- **Startseite zeigte zwischen 00:00 und 02:00 Uhr den Vortag** – Das „heute“ auf
+  der Startseite wurde in Weltzeit (UTC) berechnet. In Deutschland galt dadurch
+  nachts noch der Vortag, ein gerade vergangener Stammtisch erschien weiter als
+  „kommend“. Jetzt wird die Ortszeit des Geräts verwendet.
+- **Doppeltes Antippen konnte zwei Runden verbuchen** – Alle vier Buchungswege
+  (Geburtstagsrunde verknüpft/unverknüpft, Extra-Runde, Edle-Spender-Runde)
+  haben jetzt eine Sperre, die bis zum Abschluss der laufenden Buchung greift.
+- **Zeitfenster wurde nur beim Öffnen der Seite berechnet** – Wer die Seite um
+  23:50 Uhr öffnete und um 00:05 Uhr tippte, arbeitete mit einem veralteten
+  Stand. Das Fenster wird jetzt jede Minute neu bewertet und im Moment des
+  Antippens zusätzlich taggenau geprüft.
+- **Knopf „Gegeben“ sah außerhalb des Zeitfensters aktiv aus** – Er ist jetzt
+  auch sichtbar gesperrt (ausgegraut) statt sich erst nach dem Antippen zu
+  melden.
+- **Irreführende Meldung für Nicht-Admins** – Beim Verbuchen einer Runde für ein
+  unverknüpftes Profil kam zuerst der Hinweis auf das Zeitfenster statt des
+  Hinweises, dass nur Admins das dürfen. Reihenfolge korrigiert.
+- **Geburtstags-Box verschwand bei einem Ladefehler** – Sie wirkte dadurch wie
+  „es gibt keine Runden“. Jetzt bleibt sie sichtbar und zeigt die Fehlermeldung.
+
+### Geändert
+- **Edle-Spender-Runde jetzt auch für verknüpfte Mitglieder** – Der 🥂-Knopf in
+  der Teilnehmerliste war für Admins nur bei Mitgliedern ohne eigenes Konto
+  sichtbar. Er steht jetzt bei allen Teilnehmern zur Verfügung. Der 🎂-Knopf
+  bleibt wie bisher auf unverknüpfte Profile beschränkt (verknüpfte Mitglieder
+  laufen über die Geburtstags-Box).
+- **Rundenart in der Liste „Runden dieses Stammtischs“ erkennbar** – 🎂 bzw. 🥂
+  stehen jetzt immer vor dem Namen, nicht nur bei Mitgliedern ohne Profilbild.
+- **Überschrift präzisiert** – „Überfällig“ heißt jetzt „Überfällige
+  Geburtstagsrunden“, weil ausschließlich Geburtstagsrunden überfällig werden
+  können. Der Text bei leerer Liste wurde entsprechend angepasst.
+
+### Bekannt, noch offen
+Die schwerwiegendsten Punkte des Berichts betreffen die Datenbank und folgen in
+Etappe 2 und 3:
+- Die Datenbank berechnet den Fälligkeitsmonat einer Geburtstagsrunde einen
+  Monat später als die App. Dadurch können doppelte Einträge und doppelt aktive
+  Knöpfe entstehen.
+- Der Jahreswechsel ist noch nicht korrekt abgedeckt.
+- Die Rundenart wird intern noch über eine Fremd-Kennung abgeleitet, was in
+  Einzelfällen zu einem falschen Symbol führen kann.
+
+---
+
 ## [0.4.7] - 2026-08-15
 
 **Geänderte Dateien**

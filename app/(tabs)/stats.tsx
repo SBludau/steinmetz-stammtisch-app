@@ -362,21 +362,22 @@ export default function StatsScreen() {
         }
       } catch { /* ignore */ }
 
-      // 4) Spender-Runden
+      // 4) Runden (Geburtstag + Edle Spender)
+      // Der Zeitraum richtet sich nach dem STAMMTISCHDATUM, nicht nach dem
+      // Bestaetigungsdatum. Sonst landet eine Dezember-Runde, die der Admin
+      // erst im Januar bestaetigt, in der Auswertung des Folgejahres.
+      const eventIdsInRange = new Set(evs.map(ev => ev.id))
+
       const { data: bData, error: bErr } = await supabase
         .from('birthday_rounds')
         .select('auth_user_id,profile_id,settled_at,approved_at,settled_stammtisch_id')
         .not('approved_at', 'is', null)
-        .gte('approved_at', startApprovedInclusive)
-        .lt('approved_at', endApprovedExclusive)
       if (bErr) throw bErr
 
       const { data: sData, error: sErr } = await supabase
         .from('spender_rounds')
         .select('auth_user_id,profile_id,created_at,approved_at,stammtisch_id')
         .not('approved_at', 'is', null)
-        .gte('approved_at', startApprovedInclusive)
-        .lt('approved_at', endApprovedExclusive)
       if (sErr) throw sErr
 
       const bRows = (bData ?? []) as DonorRow[]
@@ -388,7 +389,11 @@ export default function StatsScreen() {
         settled_stammtisch_id: r.stammtisch_id
       })) as DonorRow[]
 
-      setDonors([...bRows, ...sRows])
+      const inRange = [...bRows, ...sRows].filter(
+        r => r.settled_stammtisch_id != null && eventIdsInRange.has(r.settled_stammtisch_id)
+      )
+
+      setDonors(inRange)
 
     } catch (e: any) {
       setError(e.message || 'Fehler beim Laden')
