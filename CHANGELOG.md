@@ -9,6 +9,9 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 - App Layout Feinschliff (Abstände, responsives Verhalten, Accessibility Labels)
 - Wichtige Tools: Stein–Schere–Papier, Münzwurf und Vegas Counter „Schwarz/Rot” mit Max-Counter für Stats
 - Google Auth-Login Display überprüfen/vereinheitlichen
+- **Push-Nachrichten** – noch nicht besprochen, welche Anlässe und an wen
+- **Strafrunden** – noch nicht besprochen, wodurch sie entstehen und wie sie sich
+  von Geburtstags- und Urlaubsrunden unterscheiden
 
 ---
 
