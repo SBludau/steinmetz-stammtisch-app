@@ -46,10 +46,11 @@ jobs:
     needs: ping
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
-    # Wenn das Pushen scheitert (z. B. weil die Actions-Rechte im Repository auf
-    # "nur lesen" stehen), ist das aergerlich, aber der eigentliche Ping oben ist
-    # dann trotzdem schon durchgelaufen. Der Lauf soll deswegen nicht rot werden.
-    continue-on-error: true
+    # Frueher stand hier "continue-on-error: true" – ein Scheitern des Pushs war
+    # damit unsichtbar. Genau dieser Job ist aber die einzige Absicherung gegen
+    # das stille Abschalten vom 19.05.2026. Wenn er nicht funktioniert, MUSS der
+    # Lauf rot werden, damit man es rechtzeitig sieht. Der Ping oben ist zu dem
+    # Zeitpunkt ohnehin schon erfolgreich durchgelaufen (needs: ping).
     steps:
       - uses: actions/checkout@v4
         with:

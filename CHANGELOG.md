@@ -12,6 +12,34 @@ und die Versionsnummern an [SemVer](https://semver.org/lang/de/).
 
 ---
 
+## [0.4.16] - 2026-08-16
+
+**Geänderte Dateien**
+- `.github/workflows/supabase-ping.yml`
+
+Nur der Wach-Ping, kein App-Code. Der Build vom 15.08. bleibt gültig.
+
+### Geändert
+- **Ein Fehler beim Wach-Halten bleibt jetzt sichtbar** – Der Ping besteht aus
+  zwei Teilen: der eigentlichen Abfrage, die Supabase wach hält, und einem
+  zweiten Teil, der alle 45 Tage einen leeren Commit schiebt. Der zweite Teil
+  ist die einzige Absicherung dagegen, dass GitHub den Zeitplan nach 60 Tagen
+  ohne Repository-Aktivität still abschaltet – genau das war am 19.05.2026
+  passiert. Bisher war dieser Teil auf „Fehler ignorieren" gestellt, ein
+  Scheitern wäre also unbemerkt geblieben. Jetzt wird der Lauf rot und man
+  sieht es rechtzeitig. Die Abfrage selbst läuft davor und ist davon nicht
+  betroffen.
+
+### Geprüft
+- Der Workflow steht bei GitHub wieder auf „aktiv" (er war seit dem 19.05.2026
+  abgeschaltet). Der Handstart am 15.08.2026 lief erfolgreich durch.
+- Die Schreibberechtigung für den leeren Commit steht ausdrücklich im Workflow
+  und gilt auch, obwohl die Repository-Voreinstellung auf „nur lesen" steht.
+- Offen: Der erste *automatische* Lauf nach der Reaktivierung steht noch aus
+  (17.08.2026). Erst der beweist, dass der Zeitplan wieder greift.
+
+---
+
 ## [0.4.15] - 2026-08-16
 
 **Geänderte Dateien**
